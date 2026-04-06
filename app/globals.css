@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f8f9fa;
+  --foreground: #171717;
+  --primary: #EA1E63;
+}
+
+/* මුළු Screen එකම Center කරන්න */
+body {
+  background-color: var(--background);
+  margin: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 100vh;
+}
+
+/* iPhone Notch එක සහ පල්ලෙහා Home Bar එකට ඉඩ තැබීම (Safe Area) */
+main,
+.page-container {
+  width: 100%;
+  max-width: 450px;
+  /* Mobile Width එක */
+  min-height: 100vh;
+  background-color: white;
+  position: relative;
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.05);
+
+  /* iPhone Notch එකට ඉඩ තැබීම */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+
+  display: flex;
+  flex-direction: column;
+}
+
+.kossa-footer {
+  text-align: center;
+  padding: 30px 20px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  color: #d1d5db;
+  margin-top: auto;
+  /* Footer එක හැමවෙලේම පල්ලෙහාටම තල්ලු කරයි */
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input {
+  outline: none;
+}
+
+::-webkit-scrollbar {
+  width: 0px;
+}
