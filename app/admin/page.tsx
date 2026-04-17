@@ -26,7 +26,12 @@ export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState('workers')
     const [loading, setLoading] = useState(false)
     const [updating, setUpdating] = useState(false)
+    const [sending, setSending] = useState(false) // WhatsApp sending state
     const router = useRouter()
+
+    // Customer WhatsApp States
+    const [custName, setCustName] = useState('')
+    const [custPhone, setCustPhone] = useState('')
 
     // Edit Modal States
     const [editingWorker, setEditingWorker] = useState<Worker | null>(null)
@@ -71,6 +76,30 @@ export default function AdminDashboard() {
             access: prev.access.includes(id) ? prev.access.filter(item => item !== id) : [...prev.access, id]
         }))
     }
+
+    // WhatsApp Sending Logic
+    const handleSendWelcome = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setSending(true);
+        try {
+            const res = await fetch('/api/send-welcome', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: custName, phone: custPhone }),
+            });
+            if (res.ok) {
+                alert('✅ WhatsApp Pack Sent Successfully!');
+                setCustName('');
+                setCustPhone('');
+            } else {
+                alert('❌ Failed to send WhatsApp.');
+            }
+        } catch (err) {
+            alert('❌ Connection Error');
+        } finally {
+            setSending(false);
+        }
+    };
 
     const handleAddWorker = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -138,6 +167,7 @@ export default function AdminDashboard() {
                 <nav className="space-y-2 flex-grow overflow-y-auto">
                     <p className="text-[10px] font-black text-gray-300 uppercase tracking-widest ml-4 mb-4">Management</p>
                     <button onClick={() => setActiveTab('workers')} className={`w-full flex items-center gap-4 p-4 rounded-[20px] font-bold ${activeTab === 'workers' ? 'bg-[#FFE1EC] text-[#EA1E63]' : 'text-gray-400'}`}><Users size={18} /> Workers List</button>
+                    <button onClick={() => setActiveTab('customers')} className={`w-full flex items-center gap-4 p-4 rounded-[20px] font-bold ${activeTab === 'customers' ? 'bg-[#FFE1EC] text-[#EA1E63]' : 'text-gray-400'}`}><Send size={18} /> New Customer</button>
                     <button onClick={() => setActiveTab('add')} className={`w-full flex items-center gap-4 p-4 rounded-[20px] font-bold ${activeTab === 'add' ? 'bg-[#FFE1EC] text-[#EA1E63]' : 'text-gray-400'}`}><UserPlus size={18} /> Registration</button>
                     <button onClick={() => setActiveTab('packages')} className={`w-full flex items-center gap-4 p-4 rounded-[20px] font-bold ${activeTab === 'packages' ? 'bg-[#FFE1EC] text-[#EA1E63]' : 'text-gray-400'}`}><Briefcase size={18} /> Packages</button>
                 </nav>
@@ -155,6 +185,22 @@ export default function AdminDashboard() {
                 </header>
 
                 <div className="flex-grow p-12 overflow-y-auto">
+                    {/* CUSTOMER WHATSAPP TAB */}
+                    {activeTab === 'customers' && (
+                        <div className="max-w-4xl mx-auto bg-white p-16 rounded-[60px] shadow-2xl border border-gray-100">
+                            <h2 className="text-3xl font-black mb-10 italic tracking-tighter text-[#EA1E63]">Customer Onboarding</h2>
+                            <form onSubmit={handleSendWelcome} className="space-y-8">
+                                <div className="space-y-6">
+                                    <input required type="text" value={custName} onChange={(e) => setCustName(e.target.value)} className="w-full bg-gray-50 p-6 rounded-[30px] font-bold outline-none border-2 border-transparent focus:border-pink-100" placeholder="Customer Name" />
+                                    <input required type="text" value={custPhone} onChange={(e) => setCustPhone(e.target.value)} className="w-full bg-gray-50 p-6 rounded-[30px] font-bold outline-none border-2 border-transparent focus:border-pink-100" placeholder="WhatsApp Number (077...)" />
+                                </div>
+                                <button type="submit" disabled={sending} className="w-full bg-[#EA1E63] text-white font-black p-8 rounded-[40px] shadow-2xl flex items-center justify-center gap-4 text-xl">
+                                    {sending ? <Loader2 className="animate-spin" /> : <>SEND WELCOME PACK <Send size={24} /></>}
+                                </button>
+                            </form>
+                        </div>
+                    )}
+
                     {/* WORKERS LIST */}
                     {activeTab === 'workers' && (
                         <div className="bg-white rounded-[40px] shadow-xl border border-gray-100 overflow-hidden">
