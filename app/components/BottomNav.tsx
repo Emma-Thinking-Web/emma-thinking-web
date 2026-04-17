@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, History, PlusCircle, Award } from 'lucide-react'
+import { LayoutDashboard, History, PlusCircle, Award, Users } from 'lucide-react'
+
 
 export default function BottomNav() {
     const pathname = usePathname()
@@ -27,6 +28,14 @@ export default function BottomNav() {
                 <Link href="/entry" className={`flex-1 flex flex-col items-center py-2.5 rounded-full transition-all duration-300 ${pathname === '/entry' ? 'bg-[#EA1E63] text-white shadow-md' : 'text-gray-300'}`}>
                     <PlusCircle size={20} strokeWidth={pathname === '/entry' ? 3 : 2} />
                     <span className="text-[8px] font-black mt-0.5 uppercase tracking-tighter">Entry</span>
+                </Link>
+
+                <Link
+                    href="/dashboard/clients"
+                    className={`flex-1 flex flex-col items-center py-2.5 rounded-full transition-all duration-300 ${pathname === '/dashboard/clients' ? 'bg-[#EA1E63] text-white shadow-md' : 'text-gray-300'}`}
+                >
+                    <Users size={20} strokeWidth={pathname === '/dashboard/clients' ? 3 : 2} />
+                    <span className="text-[8px] font-black mt-0.5 uppercase tracking-tighter">Clients</span>
                 </Link>
 
                 <Link href="/dashboard/profile" className={`flex-1 flex flex-col items-center py-2.5 rounded-full transition-all duration-300 ${pathname === '/dashboard/profile' ? 'bg-[#EA1E63] text-white shadow-md' : 'text-gray-300'}`}>
