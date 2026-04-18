@@ -41,11 +41,12 @@ export async function POST(req: Request) {
             ], WABA_PHONE_ID, ACCESS_TOKEN);
         } catch (err) { console.error("WhatsApp greeting error:", err); }
 
-        // 2. registration → client
+        // 2. registration → client (has dynamic URL button)
         try {
-            await sendWhatsApp(formattedPhone, 'registration', [
-                { name: 'customer_name', value: name }
-            ], WABA_PHONE_ID, ACCESS_TOKEN);
+            await sendWhatsAppWithButton(formattedPhone, 'registration',
+                [{ name: 'customer_name', value: name }],
+                'https://www.emmathinking.com/login',
+                WABA_PHONE_ID, ACCESS_TOKEN);
         } catch (err) { console.error("WhatsApp registration error:", err); }
 
         // 3. meeting_confirmation → client
@@ -121,6 +122,7 @@ export async function POST(req: Request) {
     }
 }
 
+// For templates without buttons
 async function sendWhatsApp(
     to: string,
     template: string,
@@ -151,6 +153,58 @@ async function sendWhatsApp(
                         }))
                     }]
                 })
+            }
+        })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+        console.error(`WhatsApp API Error (${template}):`, JSON.stringify(data));
+        throw new Error(`WhatsApp send failed: ${data?.error?.message || 'Unknown error'}`);
+    }
+    return data;
+}
+
+// For templates with dynamic URL button
+async function sendWhatsAppWithButton(
+    to: string,
+    template: string,
+    parameters: { name: string, value: string }[],
+    buttonUrl: string,
+    phoneId: string,
+    token: string
+) {
+    const res = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to,
+            type: "template",
+            template: {
+                name: template,
+                language: { code: "en" },
+                components: [
+                    {
+                        type: "body",
+                        parameters: parameters.map(p => ({
+                            type: "text",
+                            parameter_name: p.name,
+                            text: p.value
+                        }))
+                    },
+                    {
+                        type: "button",
+                        sub_type: "url",
+                        index: 0,
+                        parameters: [
+                            { type: "text", text: buttonUrl }
+                        ]
+                    }
+                ]
             }
         })
     });
