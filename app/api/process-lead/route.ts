@@ -31,52 +31,43 @@ export async function POST(req: Request) {
         }
 
         const formattedPhone = phone.replace(/^0/, '94').replace(/^\+/, '');
-
         const WABA_PHONE_ID = '1134936466363142';
         const ACCESS_TOKEN = process.env.WABA_ACCESS_TOKEN!;
 
-        // 1. Greeting → client
+        // 1. greeting → client
         try {
             await sendWhatsApp(formattedPhone, 'greeting', [
-                { type: "text", text: name }
+                { name: 'customer_name', value: name }
             ], WABA_PHONE_ID, ACCESS_TOKEN);
-        } catch (err) {
-            console.error("WhatsApp greeting error:", err);
-        }
+        } catch (err) { console.error("WhatsApp greeting error:", err); }
 
-        // 2. Registration → client
+        // 2. registration → client
         try {
             await sendWhatsApp(formattedPhone, 'registration', [
-                { type: "text", text: name }
+                { name: 'customer_name', value: name }
             ], WABA_PHONE_ID, ACCESS_TOKEN);
-        } catch (err) {
-            console.error("WhatsApp registration error:", err);
-        }
+        } catch (err) { console.error("WhatsApp registration error:", err); }
 
-        // 3. Meeting confirmation → client
+        // 3. meeting_confirmation → client
         try {
             await sendWhatsApp(formattedPhone, 'meeting_confirmation', [
-                { type: "text", text: name },
-                { type: "text", text: PERMANENT_MEET_LINK }
+                { name: 'customer_name', value: name },
+                { name: 'meet_link', value: PERMANENT_MEET_LINK }
             ], WABA_PHONE_ID, ACCESS_TOKEN);
-        } catch (err) {
-            console.error("WhatsApp meeting_confirmation error:", err);
-        }
+        } catch (err) { console.error("WhatsApp meeting_confirmation error:", err); }
 
-        // 4. Counsellor alert → counsellor (only for premium packages)
+        // 4. counsellor_alert → counsellor (premium packages only)
         if (COUNSELLOR_PACKAGES.includes(packageName)) {
             const counsellorPhone = COUNSELLORS[counsellor];
             if (counsellorPhone) {
                 try {
                     await sendWhatsApp(counsellorPhone, 'counsellor_alert', [
-                        { type: "text", text: name },
-                        { type: "text", text: phone },
-                        { type: "text", text: packageName },
-                        { type: "text", text: PERMANENT_MEET_LINK }
+                        { name: 'customer_name', value: name },
+                        { name: 'customer_phone', value: phone },
+                        { name: 'package_name', value: packageName },
+                        { name: 'meet_link', value: PERMANENT_MEET_LINK }
                     ], WABA_PHONE_ID, ACCESS_TOKEN);
-                } catch (err) {
-                    console.error("WhatsApp counsellor_alert error:", err);
-                }
+                } catch (err) { console.error("WhatsApp counsellor_alert error:", err); }
             }
         }
 
@@ -107,9 +98,7 @@ export async function POST(req: Request) {
                     location: PERMANENT_MEET_LINK,
                 }
             });
-        } catch (err) {
-            console.error("Google Calendar error:", err);
-        }
+        } catch (err) { console.error("Google Calendar error:", err); }
 
         // 6. Save to Supabase
         const { error: dbError } = await supabase
@@ -122,9 +111,7 @@ export async function POST(req: Request) {
                 status: 'New'
             });
 
-        if (dbError) {
-            console.error("Supabase insert error:", dbError.message);
-        }
+        if (dbError) console.error("Supabase insert error:", dbError.message);
 
         return NextResponse.json({ success: true, meet: PERMANENT_MEET_LINK });
 
@@ -137,7 +124,7 @@ export async function POST(req: Request) {
 async function sendWhatsApp(
     to: string,
     template: string,
-    parameters: any[],
+    parameters: { name: string, value: string }[],
     phoneId: string,
     token: string
 ) {
@@ -155,18 +142,23 @@ async function sendWhatsApp(
                 name: template,
                 language: { code: "en" },
                 ...(parameters.length > 0 && {
-                    components: [{ type: "body", parameters }]
+                    components: [{
+                        type: "body",
+                        parameters: parameters.map(p => ({
+                            type: "text",
+                            parameter_name: p.name,
+                            text: p.value
+                        }))
+                    }]
                 })
             }
         })
     });
 
     const data = await res.json();
-
     if (!res.ok) {
         console.error(`WhatsApp API Error (${template}):`, JSON.stringify(data));
         throw new Error(`WhatsApp send failed: ${data?.error?.message || 'Unknown error'}`);
     }
-
     return data;
 }
