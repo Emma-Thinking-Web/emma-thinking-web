@@ -6,7 +6,8 @@ export async function POST(req: Request) {
         const body = await req.json();
         const { name, phone } = body;
 
-        // Vercel dashboard eke dapu key eka gannawa
+        const PERMANENT_MEET_LINK = 'https://meet.google.com/dgc-ayrs-gzg';
+
         let privateKey = process.env.GOOGLE_PRIVATE_KEY;
 
         if (!privateKey) {
@@ -27,11 +28,9 @@ export async function POST(req: Request) {
             scopes: SCOPES,
         });
 
-        // WhatsApp Details
         const WABA_PHONE_ID = '1134936466363142';
         const ACCESS_TOKEN = process.env.WABA_ACCESS_TOKEN;
 
-        // Phone Number format (077 -> 9477)
         const formattedPhone = phone.replace(/^0/, '94').replace(/^\+/, '');
 
         // 1. WhatsApp Templates
@@ -42,38 +41,29 @@ export async function POST(req: Request) {
             console.error("WhatsApp Error:", wsErr);
         }
 
-        // 2. Google Meet Creation
+        // 2. Google Calendar Event
         const calendar = google.calendar({ version: 'v3', auth });
         const now = new Date();
         const end = new Date(now.getTime() + 30 * 60000);
 
         const eventRes = await calendar.events.insert({
             calendarId: 'ridma.emmathinking@gmail.com',
-            conferenceDataVersion: 1,
             requestBody: {
                 summary: `Onboarding: ${name}`,
                 start: { dateTime: now.toISOString() },
                 end: { dateTime: end.toISOString() },
-                conferenceData: {
-                    createRequest: {
-                        requestId: `meet-${Date.now()}`,
-                        conferenceSolutionKey: { type: 'eventHangout' } // ✅ Fixed: personal Gmail uses eventHangout
-                    }
-                }
+                description: `Join the meeting here: ${PERMANENT_MEET_LINK}`,
+                location: PERMANENT_MEET_LINK,
             }
         });
 
-        // Meet link - fallback chain because personal Gmail may return it differently
-        const meetLink =
-            eventRes.data.hangoutLink ||
-            eventRes.data.conferenceData?.entryPoints?.find(e => e.entryPointType === 'video')?.uri ||
-            null;
+        console.log("Calendar event created:", eventRes.data.id);
 
-        if (!meetLink) {
-            console.warn("Meet link not returned. Full conferenceData:", JSON.stringify(eventRes.data.conferenceData));
-        }
-
-        return NextResponse.json({ success: true, meet: meetLink });
+        return NextResponse.json({
+            success: true,
+            meet: PERMANENT_MEET_LINK,
+            eventId: eventRes.data.id
+        });
 
     } catch (err: any) {
         console.error("API ROUTE ERROR:", err.message);
