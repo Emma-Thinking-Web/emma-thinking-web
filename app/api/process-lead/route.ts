@@ -1,69 +1,132 @@
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+const PERMANENT_MEET_LINK = 'https://meet.google.com/dgc-ayrs-gzg';
+
+const COUNSELLORS: Record<string, string> = {
+    'Ayesha': '94744120719',
+    'Rashi': '94744120718',
+};
+
+const COUNSELLOR_PACKAGES = [
+    'Gold Pass',
+    'VIP Pass',
+    'Princess Gold',
+    'Princess VIP'
+];
 
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { name, phone } = body;
+        const { name, phone, packageName, counsellor } = body;
 
-        const PERMANENT_MEET_LINK = 'https://meet.google.com/dgc-ayrs-gzg';
-
-        let privateKey = process.env.GOOGLE_PRIVATE_KEY;
-
-        if (!privateKey) {
-            console.error("CRITICAL: GOOGLE_PRIVATE_KEY missing!");
-            return NextResponse.json({ error: "Server Configuration Error" }, { status: 500 });
+        if (!name || !phone || !packageName || !counsellor) {
+            return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
-
-        const formattedKey = privateKey
-            .replace(/^"(.*)"$/, '$1')
-            .split(String.raw`\n`)
-            .join('\n');
-
-        const SCOPES = ['https://www.googleapis.com/auth/calendar.events'];
-
-        const auth = new google.auth.JWT({
-            email: process.env.GOOGLE_CLIENT_EMAIL,
-            key: formattedKey,
-            scopes: SCOPES,
-        });
-
-        const WABA_PHONE_ID = '1134936466363142';
-        const ACCESS_TOKEN = process.env.WABA_ACCESS_TOKEN;
 
         const formattedPhone = phone.replace(/^0/, '94').replace(/^\+/, '');
 
-        // 1. WhatsApp Templates
+        const WABA_PHONE_ID = '1134936466363142';
+        const ACCESS_TOKEN = process.env.WABA_ACCESS_TOKEN!;
+
+        // 1. Greeting → client
         try {
-            await sendWhatsApp(formattedPhone, 'greeting', [{ type: "text", text: name }], WABA_PHONE_ID, ACCESS_TOKEN!);
-            await sendWhatsApp(formattedPhone, 'registration', [{ type: "text", text: name }], WABA_PHONE_ID, ACCESS_TOKEN!);
-        } catch (wsErr) {
-            console.error("WhatsApp Error:", wsErr);
+            await sendWhatsApp(formattedPhone, 'greeting', [
+                { type: "text", text: name }
+            ], WABA_PHONE_ID, ACCESS_TOKEN);
+        } catch (err) {
+            console.error("WhatsApp greeting error:", err);
         }
 
-        // 2. Google Calendar Event
-        const calendar = google.calendar({ version: 'v3', auth });
-        const now = new Date();
-        const end = new Date(now.getTime() + 30 * 60000);
+        // 2. Registration → client
+        try {
+            await sendWhatsApp(formattedPhone, 'registration', [
+                { type: "text", text: name }
+            ], WABA_PHONE_ID, ACCESS_TOKEN);
+        } catch (err) {
+            console.error("WhatsApp registration error:", err);
+        }
 
-        const eventRes = await calendar.events.insert({
-            calendarId: 'ridma.emmathinking@gmail.com',
-            requestBody: {
-                summary: `Onboarding: ${name}`,
-                start: { dateTime: now.toISOString() },
-                end: { dateTime: end.toISOString() },
-                description: `Join the meeting here: ${PERMANENT_MEET_LINK}`,
-                location: PERMANENT_MEET_LINK,
+        // 3. Meeting confirmation → client
+        try {
+            await sendWhatsApp(formattedPhone, 'meeting_confirmation', [
+                { type: "text", text: name },
+                { type: "text", text: PERMANENT_MEET_LINK }
+            ], WABA_PHONE_ID, ACCESS_TOKEN);
+        } catch (err) {
+            console.error("WhatsApp meeting_confirmation error:", err);
+        }
+
+        // 4. Counsellor alert → counsellor (only for premium packages)
+        if (COUNSELLOR_PACKAGES.includes(packageName)) {
+            const counsellorPhone = COUNSELLORS[counsellor];
+            if (counsellorPhone) {
+                try {
+                    await sendWhatsApp(counsellorPhone, 'counsellor_alert', [
+                        { type: "text", text: name },
+                        { type: "text", text: phone },
+                        { type: "text", text: packageName },
+                        { type: "text", text: PERMANENT_MEET_LINK }
+                    ], WABA_PHONE_ID, ACCESS_TOKEN);
+                } catch (err) {
+                    console.error("WhatsApp counsellor_alert error:", err);
+                }
             }
-        });
+        }
 
-        console.log("Calendar event created:", eventRes.data.id);
+        // 5. Google Calendar Event
+        try {
+            const privateKey = process.env.GOOGLE_PRIVATE_KEY!
+                .replace(/^"(.*)"$/, '$1')
+                .split(String.raw`\n`)
+                .join('\n');
 
-        return NextResponse.json({
-            success: true,
-            meet: PERMANENT_MEET_LINK,
-            eventId: eventRes.data.id
-        });
+            const auth = new google.auth.JWT({
+                email: process.env.GOOGLE_CLIENT_EMAIL,
+                key: privateKey,
+                scopes: ['https://www.googleapis.com/auth/calendar.events'],
+            });
+
+            const calendar = google.calendar({ version: 'v3', auth });
+            const now = new Date();
+            const end = new Date(now.getTime() + 30 * 60000);
+
+            await calendar.events.insert({
+                calendarId: 'ridma.emmathinking@gmail.com',
+                requestBody: {
+                    summary: `Onboarding: ${name}`,
+                    start: { dateTime: now.toISOString() },
+                    end: { dateTime: end.toISOString() },
+                    description: `Package: ${packageName}\nCounsellor: ${counsellor}\nJoin: ${PERMANENT_MEET_LINK}`,
+                    location: PERMANENT_MEET_LINK,
+                }
+            });
+        } catch (err) {
+            console.error("Google Calendar error:", err);
+        }
+
+        // 6. Save to Supabase
+        const { error: dbError } = await supabase
+            .from('customers')
+            .insert({
+                customer_name: name,
+                customer_number: phone,
+                package: packageName,
+                counsellor: counsellor,
+                status: 'New'
+            });
+
+        if (dbError) {
+            console.error("Supabase insert error:", dbError.message);
+        }
+
+        return NextResponse.json({ success: true, meet: PERMANENT_MEET_LINK });
 
     } catch (err: any) {
         console.error("API ROUTE ERROR:", err.message);
@@ -91,7 +154,9 @@ async function sendWhatsApp(
             template: {
                 name: template,
                 language: { code: "en" },
-                components: [{ type: "body", parameters }]
+                ...(parameters.length > 0 && {
+                    components: [{ type: "body", parameters }]
+                })
             }
         })
     });

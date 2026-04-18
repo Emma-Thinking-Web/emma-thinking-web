@@ -1,38 +1,48 @@
 'use client'
 
 import { useState } from 'react'
-import { Send, Loader2, User, Phone } from 'lucide-react'
-import Image from 'next/image'
+import { Send, Loader2, User, Phone, Package, UserCheck } from 'lucide-react'
+
+const PACKAGES = [
+    'Bronze Pass',
+    'Silver Pass',
+    'Gold Pass',
+    'VIP Pass',
+    'Princess Silver',
+    'Princess Gold',
+    'Princess VIP'
+];
+
+const COUNSELLORS = ['Ayesha', 'Rashi'];
 
 export default function ClientsPage() {
     const [loading, setLoading] = useState(false)
     const [name, setName] = useState('')
     const [phone, setPhone] = useState('')
+    const [packageName, setPackageName] = useState('')
+    const [counsellor, setCounsellor] = useState('')
 
     const handleQuickSend = async (e: React.FormEvent) => {
         e.preventDefault()
         setLoading(true)
 
         try {
-            // මෙතනදී අපි කලින් හදපු API route එකම පාවිච්චි කරන්න පුළුවන්
-            // පැකේජ් එකයි වෙලාවයි default විදිහට යවමු
             const res = await fetch('/api/process-lead', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name,
-                    phone,
-                    package_name: 'General Inquiry',
-                    date: new Date().toISOString().split('T')[0], // Today
-                    time: '10:00' // Default time
-                }),
+                body: JSON.stringify({ name, phone, packageName, counsellor }),
             })
 
+            const data = await res.json()
+
             if (res.ok) {
-                alert('✅ Greeting & Registration Sent!')
-                setName(''); setPhone('')
+                alert('✅ Client onboarded successfully!')
+                setName('')
+                setPhone('')
+                setPackageName('')
+                setCounsellor('')
             } else {
-                alert('❌ Failed to send.')
+                alert(`❌ Failed: ${data.error}`)
             }
         } catch (err) {
             alert('❌ Connection Error')
@@ -50,6 +60,8 @@ export default function ClientsPage() {
 
             <form onSubmit={handleQuickSend} className="p-8 space-y-6 mt-6 max-w-md mx-auto">
                 <div className="space-y-4">
+
+                    {/* Name */}
                     <div className="relative">
                         <User className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
                         <input
@@ -62,6 +74,7 @@ export default function ClientsPage() {
                         />
                     </div>
 
+                    {/* Phone */}
                     <div className="relative">
                         <Phone className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
                         <input
@@ -73,6 +86,39 @@ export default function ClientsPage() {
                             onChange={(e) => setPhone(e.target.value)}
                         />
                     </div>
+
+                    {/* Package */}
+                    <div className="relative">
+                        <Package className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
+                        <select
+                            required
+                            className="w-full bg-gray-50 p-6 pl-14 rounded-[30px] font-bold outline-none border-2 border-transparent focus:border-pink-200 transition-all appearance-none text-gray-700"
+                            value={packageName}
+                            onChange={(e) => setPackageName(e.target.value)}
+                        >
+                            <option value="">Select Package</option>
+                            {PACKAGES.map(p => (
+                                <option key={p} value={p}>{p}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Counsellor */}
+                    <div className="relative">
+                        <UserCheck className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
+                        <select
+                            required
+                            className="w-full bg-gray-50 p-6 pl-14 rounded-[30px] font-bold outline-none border-2 border-transparent focus:border-pink-200 transition-all appearance-none text-gray-700"
+                            value={counsellor}
+                            onChange={(e) => setCounsellor(e.target.value)}
+                        >
+                            <option value="">Select Counsellor</option>
+                            {COUNSELLORS.map(c => (
+                                <option key={c} value={c}>{c}</option>
+                            ))}
+                        </select>
+                    </div>
+
                 </div>
 
                 <button
@@ -86,7 +132,7 @@ export default function ClientsPage() {
 
             <div className="px-10 py-4 text-center">
                 <p className="text-[10px] text-gray-300 font-bold uppercase tracking-widest leading-loose">
-                    This will automatically send Greeting and Registration templates via WhatsApp.
+                    Greeting, Registration & Meeting Confirmation will be sent via WhatsApp.
                 </p>
             </div>
         </div>
