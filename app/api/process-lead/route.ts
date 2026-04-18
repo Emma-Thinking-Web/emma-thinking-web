@@ -21,8 +21,8 @@ const MEET_LINKS = [
 ];
 
 const COUNSELLORS: Record<string, string> = {
-    'Ayesha': '94744120719',
-    'Rashi': '94744120718',
+    'Ayesha': '94744120723',
+    'Rashi': '94744120721',
 };
 
 const COUNSELLOR_PACKAGES = [
