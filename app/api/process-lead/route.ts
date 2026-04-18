@@ -7,7 +7,18 @@ const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const PERMANENT_MEET_LINK = 'https://meet.google.com/dgc-ayrs-gzg';
+const MEET_LINKS = [
+    'https://meet.google.com/zew-shav-sar',
+    'https://meet.google.com/dvi-nefx-awd',
+    'https://meet.google.com/yzp-dajy-dei',
+    'https://meet.google.com/pjw-ztoo-mre',
+    'https://meet.google.com/pgf-xyds-wif',
+    'https://meet.google.com/wwk-ntdm-sar',
+    'https://meet.google.com/qwv-jfmn-vxo',
+    'https://meet.google.com/zdt-sjxd-edo',
+    'https://meet.google.com/qfg-ekon-huo',
+    'https://meet.google.com/mwa-jhqt-jqe',
+];
 
 const COUNSELLORS: Record<string, string> = {
     'Ayesha': '94744120719',
@@ -20,6 +31,16 @@ const COUNSELLOR_PACKAGES = [
     'Princess Gold',
     'Princess VIP'
 ];
+
+async function getNextMeetLink(): Promise<string> {
+    // Count existing customers to determine which link to use
+    const { count } = await supabase
+        .from('customers')
+        .select('*', { count: 'exact', head: true });
+
+    const index = (count ?? 0) % MEET_LINKS.length;
+    return MEET_LINKS[index];
+}
 
 export async function POST(req: Request) {
     try {
@@ -34,14 +55,10 @@ export async function POST(req: Request) {
         const WABA_PHONE_ID = '1134936466363142';
         const ACCESS_TOKEN = process.env.WABA_ACCESS_TOKEN!;
 
-        // 1. greeting → client
-        try {
-            await sendWhatsApp(formattedPhone, 'greeting', [
-                { name: 'customer_name', value: name }
-            ], WABA_PHONE_ID, ACCESS_TOKEN);
-        } catch (err) { console.error("WhatsApp greeting error:", err); }
+        // Get rotating meet link
+        const meetLink = await getNextMeetLink();
 
-        // 2. registration → client (has dynamic URL button)
+        // 1. website → client
         try {
             await sendWhatsAppWithButton(formattedPhone, 'website',
                 [{ name: 'customer_name', value: name }],
@@ -49,15 +66,15 @@ export async function POST(req: Request) {
                 WABA_PHONE_ID, ACCESS_TOKEN);
         } catch (err) { console.error("WhatsApp website error:", err); }
 
-        // 3. meeting_confirmation → client
+        // 2. meeting_confirmation → client
         try {
             await sendWhatsApp(formattedPhone, 'meeting_confirmation', [
                 { name: 'customer_name', value: name },
-                { name: 'meet_link', value: PERMANENT_MEET_LINK }
+                { name: 'meet_link', value: meetLink }
             ], WABA_PHONE_ID, ACCESS_TOKEN);
         } catch (err) { console.error("WhatsApp meeting_confirmation error:", err); }
 
-        // 4. counsellor_alert → counsellor (premium packages only)
+        // 3. counsellor_alert → counsellor (premium packages only)
         if (COUNSELLOR_PACKAGES.includes(packageName)) {
             const counsellorPhone = COUNSELLORS[counsellor];
             if (counsellorPhone) {
@@ -66,13 +83,13 @@ export async function POST(req: Request) {
                         { name: 'customer_name', value: name },
                         { name: 'customer_phone', value: phone },
                         { name: 'package_name', value: packageName },
-                        { name: 'meet_link', value: PERMANENT_MEET_LINK }
+                        { name: 'meet_link', value: meetLink }
                     ], WABA_PHONE_ID, ACCESS_TOKEN);
                 } catch (err) { console.error("WhatsApp counsellor_alert error:", err); }
             }
         }
 
-        // 5. Google Calendar Event
+        // 4. Google Calendar Event
         try {
             const privateKey = process.env.GOOGLE_PRIVATE_KEY!
                 .replace(/^"(.*)"$/, '$1')
@@ -95,13 +112,13 @@ export async function POST(req: Request) {
                     summary: `Onboarding: ${name}`,
                     start: { dateTime: now.toISOString() },
                     end: { dateTime: end.toISOString() },
-                    description: `Package: ${packageName}\nCounsellor: ${counsellor}\nJoin: ${PERMANENT_MEET_LINK}`,
-                    location: PERMANENT_MEET_LINK,
+                    description: `Package: ${packageName}\nCounsellor: ${counsellor}\nJoin: ${meetLink}`,
+                    location: meetLink,
                 }
             });
         } catch (err) { console.error("Google Calendar error:", err); }
 
-        // 6. Save to Supabase
+        // 5. Save to Supabase
         const { error: dbError } = await supabase
             .from('customers')
             .insert({
@@ -109,12 +126,13 @@ export async function POST(req: Request) {
                 customer_number: phone,
                 package: packageName,
                 counsellor: counsellor,
-                status: 'New'
+                status: 'New',
+                meet_link: meetLink
             });
 
         if (dbError) console.error("Supabase insert error:", dbError.message);
 
-        return NextResponse.json({ success: true, meet: PERMANENT_MEET_LINK });
+        return NextResponse.json({ success: true, meet: meetLink });
 
     } catch (err: any) {
         console.error("API ROUTE ERROR:", err.message);
@@ -122,7 +140,6 @@ export async function POST(req: Request) {
     }
 }
 
-// For templates without buttons
 async function sendWhatsApp(
     to: string,
     template: string,
@@ -165,7 +182,6 @@ async function sendWhatsApp(
     return data;
 }
 
-// For templates with dynamic URL button
 async function sendWhatsAppWithButton(
     to: string,
     template: string,
