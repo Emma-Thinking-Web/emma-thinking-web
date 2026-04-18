@@ -43,11 +43,11 @@ export async function POST(req: Request) {
 
         // 2. registration → client (has dynamic URL button)
         try {
-            await sendWhatsAppWithButton(formattedPhone, 'registration',
+            await sendWhatsAppWithButton(formattedPhone, 'website',
                 [{ name: 'customer_name', value: name }],
                 'https://www.emmathinking.com/login',
                 WABA_PHONE_ID, ACCESS_TOKEN);
-        } catch (err) { console.error("WhatsApp registration error:", err); }
+        } catch (err) { console.error("WhatsApp website error:", err); }
 
         // 3. meeting_confirmation → client
         try {
