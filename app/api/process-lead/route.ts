@@ -33,7 +33,6 @@ const COUNSELLOR_PACKAGES = [
 ];
 
 async function getNextMeetLink(): Promise<string> {
-    // Count existing customers to determine which link to use
     const { count } = await supabase
         .from('customers')
         .select('*', { count: 'exact', head: true });
@@ -55,14 +54,12 @@ export async function POST(req: Request) {
         const WABA_PHONE_ID = '1134936466363142';
         const ACCESS_TOKEN = process.env.WABA_ACCESS_TOKEN!;
 
-        // Get rotating meet link
         const meetLink = await getNextMeetLink();
 
-        // 1. website → client
+        // 1. website → client (NO button)
         try {
-            await sendWhatsAppWithButton(formattedPhone, 'website',
+            await sendWhatsApp(formattedPhone, 'website',
                 [{ name: 'customer_name', value: name }],
-                'https://www.emmathinking.com/login',
                 WABA_PHONE_ID, ACCESS_TOKEN);
         } catch (err) { console.error("WhatsApp website error:", err); }
 
@@ -170,57 +167,6 @@ async function sendWhatsApp(
                         }))
                     }]
                 })
-            }
-        })
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-        console.error(`WhatsApp API Error (${template}):`, JSON.stringify(data));
-        throw new Error(`WhatsApp send failed: ${data?.error?.message || 'Unknown error'}`);
-    }
-    return data;
-}
-
-async function sendWhatsAppWithButton(
-    to: string,
-    template: string,
-    parameters: { name: string, value: string }[],
-    buttonUrl: string,
-    phoneId: string,
-    token: string
-) {
-    const res = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            messaging_product: "whatsapp",
-            to,
-            type: "template",
-            template: {
-                name: template,
-                language: { code: "en" },
-                components: [
-                    {
-                        type: "body",
-                        parameters: parameters.map(p => ({
-                            type: "text",
-                            parameter_name: p.name,
-                            text: p.value
-                        }))
-                    },
-                    {
-                        type: "button",
-                        sub_type: "url",
-                        index: 0,
-                        parameters: [
-                            { type: "text", text: buttonUrl }
-                        ]
-                    }
-                ]
             }
         })
     });
