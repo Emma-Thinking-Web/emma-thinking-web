@@ -14,8 +14,6 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Server Configuration Error" }, { status: 500 });
         }
 
-        // --- KEY FIX (Meka thamai wadagathma) ---
-        // Vercel eke daddi quotes thibboth ewa remove karala, \n tika hariyata handle karanawa
         const formattedKey = privateKey
             .replace(/^"(.*)"$/, '$1')
             .split(String.raw`\n`)
@@ -36,7 +34,7 @@ export async function POST(req: Request) {
         // Phone Number format (077 -> 9477)
         const formattedPhone = phone.replace(/^0/, '94').replace(/^\+/, '');
 
-        // 1. WhatsApp Templates yawamu (Meka try-catch danna ekak fail unath anika yanna)
+        // 1. WhatsApp Templates
         try {
             await sendWhatsApp(formattedPhone, 'greeting', [{ type: "text", text: name }], WABA_PHONE_ID, ACCESS_TOKEN!);
             await sendWhatsApp(formattedPhone, 'registration', [{ type: "text", text: name }], WABA_PHONE_ID, ACCESS_TOKEN!);
@@ -45,7 +43,6 @@ export async function POST(req: Request) {
         }
 
         // 2. Google Meet Creation
-        // (Oya date/time ewanne nathi nisa danata meka test ekakata current time gannawa)
         const calendar = google.calendar({ version: 'v3', auth });
         const now = new Date();
         const end = new Date(now.getTime() + 30 * 60000);
@@ -58,12 +55,25 @@ export async function POST(req: Request) {
                 start: { dateTime: now.toISOString() },
                 end: { dateTime: end.toISOString() },
                 conferenceData: {
-                    createRequest: { requestId: `meet-${Date.now()}`, conferenceSolutionKey: { type: 'hangoutsMeet' } }
+                    createRequest: {
+                        requestId: `meet-${Date.now()}`,
+                        conferenceSolutionKey: { type: 'eventHangout' } // ✅ Fixed: personal Gmail uses eventHangout
+                    }
                 }
             }
         });
 
-        return NextResponse.json({ success: true, meet: eventRes.data.hangoutLink });
+        // Meet link - fallback chain because personal Gmail may return it differently
+        const meetLink =
+            eventRes.data.hangoutLink ||
+            eventRes.data.conferenceData?.entryPoints?.find(e => e.entryPointType === 'video')?.uri ||
+            null;
+
+        if (!meetLink) {
+            console.warn("Meet link not returned. Full conferenceData:", JSON.stringify(eventRes.data.conferenceData));
+        }
+
+        return NextResponse.json({ success: true, meet: meetLink });
 
     } catch (err: any) {
         console.error("API ROUTE ERROR:", err.message);
@@ -71,10 +81,19 @@ export async function POST(req: Request) {
     }
 }
 
-async function sendWhatsApp(to: string, template: string, parameters: any[], phoneId: string, token: string) {
+async function sendWhatsApp(
+    to: string,
+    template: string,
+    parameters: any[],
+    phoneId: string,
+    token: string
+) {
     const res = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
             messaging_product: "whatsapp",
             to,
@@ -86,5 +105,13 @@ async function sendWhatsApp(to: string, template: string, parameters: any[], pho
             }
         })
     });
-    return res.json();
+
+    const data = await res.json();
+
+    if (!res.ok) {
+        console.error(`WhatsApp API Error (${template}):`, JSON.stringify(data));
+        throw new Error(`WhatsApp send failed: ${data?.error?.message || 'Unknown error'}`);
+    }
+
+    return data;
 }
