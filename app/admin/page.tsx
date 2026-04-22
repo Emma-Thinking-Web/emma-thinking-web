@@ -4,29 +4,46 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
     Users, UserPlus, Trash2, Loader2, ShieldCheck, LogOut,
-    Settings2, Target, Percent, Laptop, Briefcase, Mail, Key, Send
+    Briefcase, Send, ClipboardList, Plus, Calendar, X, CheckCircle2
 } from 'lucide-react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 
 export default function AdminDashboard() {
     interface Worker {
-        id: string;
-        full_name: string;
-        email: string;
-        post_label: string;
-        access_level: string[];
-        targets?: any;
-        commission_rates?: any;
-        level?: string;
+        id: string
+        full_name: string
+        email: string
+        post_label: string
+        access_level: string[]
+        targets?: any
+        commission_rates?: any
+        level?: string
+    }
+
+    interface Task {
+        id: string
+        worker_id: string
+        worker_name: string
+        worker_phone: string
+        title: string
+        description: string
+        deadline: string
+        status: string
+        sms_sent_5: boolean
+        sms_sent_3: boolean
+        sms_sent_0: boolean
+        created_at: string
     }
 
     const [workers, setWorkers] = useState<Worker[]>([])
     const [packages, setPackages] = useState<any[]>([])
+    const [tasks, setTasks] = useState<Task[]>([])
     const [activeTab, setActiveTab] = useState('workers')
     const [loading, setLoading] = useState(false)
     const [updating, setUpdating] = useState(false)
-    const [sending, setSending] = useState(false) // WhatsApp sending state
+    const [sending, setSending] = useState(false)
+    const [taskLoading, setTaskLoading] = useState(false)
     const router = useRouter()
 
     // Customer WhatsApp States
@@ -37,6 +54,16 @@ export default function AdminDashboard() {
     const [editingWorker, setEditingWorker] = useState<Worker | null>(null)
     const [tempTargets, setTempTargets] = useState<any>({ p1: 10, p2: 10, p3: 10, p4: 10, p5: 10, p6: 10 })
     const [tempCommissions, setTempCommissions] = useState<any>({ p1: 10, p2: 8, p3: 5, p4: 10, p5: 8, p6: 5 })
+
+    // Task Form States
+    const [taskForm, setTaskForm] = useState({
+        worker_id: '',
+        worker_phone: '',
+        title: '',
+        description: '',
+        deadline: '',
+    })
+    const [taskFormOpen, setTaskFormOpen] = useState(false)
 
     const accessOptions = [
         { id: 'dashboard', label: 'Dashboard' },
@@ -65,9 +92,15 @@ export default function AdminDashboard() {
         if (data) setPackages(data)
     }
 
+    const fetchTasks = async () => {
+        const { data } = await supabase.from('tasks').select('*').order('deadline', { ascending: true })
+        if (data) setTasks(data as Task[])
+    }
+
     useEffect(() => {
         fetchWorkers()
         fetchPackages()
+        fetchTasks()
     }, [])
 
     const handleAccessChange = (id: string) => {
@@ -77,29 +110,28 @@ export default function AdminDashboard() {
         }))
     }
 
-    // WhatsApp Sending Logic
     const handleSendWelcome = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setSending(true);
+        e.preventDefault()
+        setSending(true)
         try {
             const res = await fetch('/api/send-welcome', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: custName, phone: custPhone }),
-            });
+            })
             if (res.ok) {
-                alert('✅ WhatsApp Pack Sent Successfully!');
-                setCustName('');
-                setCustPhone('');
+                alert('✅ WhatsApp Pack Sent Successfully!')
+                setCustName('')
+                setCustPhone('')
             } else {
-                alert('❌ Failed to send WhatsApp.');
+                alert('❌ Failed to send WhatsApp.')
             }
-        } catch (err) {
-            alert('❌ Connection Error');
+        } catch {
+            alert('❌ Connection Error')
         } finally {
-            setSending(false);
+            setSending(false)
         }
-    };
+    }
 
     const handleAddWorker = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -110,9 +142,7 @@ export default function AdminDashboard() {
                 password: formData.password,
                 options: { data: { full_name: formData.fullName, role: 'worker' } }
             })
-
             if (authError) throw authError
-
             if (authData?.user) {
                 const { error: profileError } = await supabase.from('profiles').insert([{
                     id: authData.user.id,
@@ -130,12 +160,12 @@ export default function AdminDashboard() {
                     created_at: new Date().toISOString()
                 }])
                 if (profileError) throw profileError
-                alert("Worker Registered Successfully! ✅")
+                alert('Worker Registered Successfully! ✅')
                 setFormData({ fullName: '', email: '', password: '', postLabel: '', access: [] })
                 setActiveTab('workers')
                 fetchWorkers()
             }
-        } catch (error: any) { alert("Admin Error: " + error.message) }
+        } catch (error: any) { alert('Admin Error: ' + error.message) }
         finally { setLoading(false) }
     }
 
@@ -149,11 +179,82 @@ export default function AdminDashboard() {
         setUpdating(true)
         const { error } = await supabase.from('profiles').update({ targets: tempTargets, commission_rates: tempCommissions }).eq('id', editingWorker.id)
         if (!error) {
-            alert("Worker Config Updated! 🚀")
+            alert('Worker Config Updated! 🚀')
             setEditingWorker(null)
             fetchWorkers()
         }
         setUpdating(false)
+    }
+
+    // ── TASK FUNCTIONS ──────────────────────────────────────────
+    const handleWorkerSelect = (workerId: string) => {
+        const worker = workers.find(w => w.id === workerId)
+        setTaskForm(prev => ({
+            ...prev,
+            worker_id: workerId,
+            worker_phone: '',  // admin fills phone manually per task
+        }))
+    }
+
+    const handleAddTask = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!taskForm.worker_id || !taskForm.title || !taskForm.deadline || !taskForm.worker_phone) {
+            alert('Please fill all required fields')
+            return
+        }
+        setTaskLoading(true)
+        const worker = workers.find(w => w.id === taskForm.worker_id)
+        const { error } = await supabase.from('tasks').insert([{
+            worker_id: taskForm.worker_id,
+            worker_name: worker?.full_name || '',
+            worker_phone: taskForm.worker_phone,
+            title: taskForm.title,
+            description: taskForm.description,
+            deadline: taskForm.deadline,
+            status: 'active',
+            sms_sent_5: false,
+            sms_sent_3: false,
+            sms_sent_0: false,
+            created_at: new Date().toISOString()
+        }])
+        if (!error) {
+            alert('Task Added! ✅')
+            setTaskForm({ worker_id: '', worker_phone: '', title: '', description: '', deadline: '' })
+            setTaskFormOpen(false)
+            fetchTasks()
+        } else {
+            alert('Error: ' + error.message)
+        }
+        setTaskLoading(false)
+    }
+
+    const handleDeleteTask = async (id: string) => {
+        if (!confirm('Delete this task?')) return
+        await supabase.from('tasks').delete().eq('id', id)
+        fetchTasks()
+    }
+
+    const handleMarkTaskDone = async (id: string) => {
+        await supabase.from('tasks').update({ status: 'done' }).eq('id', id)
+        fetchTasks()
+    }
+
+    function getDaysLeft(deadline: string): number {
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        const end = new Date(deadline)
+        end.setHours(0, 0, 0, 0)
+        return Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    }
+
+    function getProgressPercent(createdAt: string, deadline: string): number {
+        const start = new Date(createdAt).getTime()
+        const end = new Date(deadline).getTime()
+        const now = Date.now()
+        const total = end - start
+        const elapsed = now - start
+        if (total <= 0) return 100
+        return Math.min(100, Math.max(0, Math.round((elapsed / total) * 100)))
     }
 
     return (
@@ -166,25 +267,130 @@ export default function AdminDashboard() {
                 </div>
                 <nav className="space-y-2 flex-grow overflow-y-auto">
                     <p className="text-[10px] font-black text-gray-300 uppercase tracking-widest ml-4 mb-4">Management</p>
-                    <button onClick={() => setActiveTab('workers')} className={`w-full flex items-center gap-4 p-4 rounded-[20px] font-bold ${activeTab === 'workers' ? 'bg-[#FFE1EC] text-[#EA1E63]' : 'text-gray-400'}`}><Users size={18} /> Workers List</button>
-                    <button onClick={() => setActiveTab('customers')} className={`w-full flex items-center gap-4 p-4 rounded-[20px] font-bold ${activeTab === 'customers' ? 'bg-[#FFE1EC] text-[#EA1E63]' : 'text-gray-400'}`}><Send size={18} /> New Customer</button>
-                    <button onClick={() => setActiveTab('add')} className={`w-full flex items-center gap-4 p-4 rounded-[20px] font-bold ${activeTab === 'add' ? 'bg-[#FFE1EC] text-[#EA1E63]' : 'text-gray-400'}`}><UserPlus size={18} /> Registration</button>
-                    <button onClick={() => setActiveTab('packages')} className={`w-full flex items-center gap-4 p-4 rounded-[20px] font-bold ${activeTab === 'packages' ? 'bg-[#FFE1EC] text-[#EA1E63]' : 'text-gray-400'}`}><Briefcase size={18} /> Packages</button>
+                    {[
+                        { id: 'workers', icon: <Users size={18} />, label: 'Workers List' },
+                        { id: 'tasks', icon: <ClipboardList size={18} />, label: 'Tasks' },
+                        { id: 'customers', icon: <Send size={18} />, label: 'New Customer' },
+                        { id: 'add', icon: <UserPlus size={18} />, label: 'Registration' },
+                        { id: 'packages', icon: <Briefcase size={18} />, label: 'Packages' },
+                    ].map(tab => (
+                        <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                            className={`w-full flex items-center gap-4 p-4 rounded-[20px] font-bold ${activeTab === tab.id ? 'bg-[#FFE1EC] text-[#EA1E63]' : 'text-gray-400'}`}>
+                            {tab.icon} {tab.label}
+                        </button>
+                    ))}
                 </nav>
-                <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="flex items-center gap-4 p-4 text-gray-400 font-bold hover:text-red-500 mt-auto"><LogOut size={18} /> Logout</button>
+                <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))}
+                    className="flex items-center gap-4 p-4 text-gray-400 font-bold hover:text-red-500 mt-auto">
+                    <LogOut size={18} /> Logout
+                </button>
             </div>
 
             {/* Main Content */}
             <div className="flex-grow flex flex-col overflow-hidden">
                 <header className="bg-white/90 backdrop-blur-md border-b border-gray-100 p-8 flex justify-between items-center z-10">
-                    <div className="flex items-center gap-4">
-                        <Laptop size={24} className="text-gray-300" />
-                        <h1 className="text-3xl font-black tracking-tighter italic uppercase text-gray-800">{activeTab}</h1>
+                    <h1 className="text-3xl font-black tracking-tighter italic uppercase text-gray-800">{activeTab}</h1>
+                    <div className="flex items-center gap-5 italic font-black text-sm">
+                        Dilshan Jayawickrama
+                        <div className="h-10 w-10 bg-[#EA1E63] rounded-xl flex items-center justify-center text-white">K</div>
                     </div>
-                    <div className="flex items-center gap-5 italic font-black text-sm">Dilshan Jayawickrama <div className="h-10 w-10 bg-[#EA1E63] rounded-xl flex items-center justify-center text-white">K</div></div>
                 </header>
 
                 <div className="flex-grow p-12 overflow-y-auto">
+
+                    {/* ── TASKS TAB ── */}
+                    {activeTab === 'tasks' && (
+                        <div className="space-y-6 max-w-5xl mx-auto">
+                            {/* Add Task Button */}
+                            <div className="flex justify-between items-center">
+                                <div>
+                                    <h2 className="text-xl font-black text-gray-800 italic tracking-tighter">Worker Tasks</h2>
+                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">{tasks.length} total tasks</p>
+                                </div>
+                                <button onClick={() => setTaskFormOpen(true)}
+                                    className="bg-[#EA1E63] text-white font-black px-8 py-4 rounded-[20px] flex items-center gap-3 shadow-lg shadow-pink-100">
+                                    <Plus size={18} /> Add Task
+                                </button>
+                            </div>
+
+                            {/* Tasks Table */}
+                            <div className="bg-white rounded-[40px] shadow-xl border border-gray-100 overflow-hidden">
+                                {tasks.length === 0 ? (
+                                    <div className="p-16 text-center">
+                                        <ClipboardList size={40} className="text-gray-200 mx-auto mb-4" />
+                                        <p className="text-sm font-black text-gray-300">No tasks yet. Add one above.</p>
+                                    </div>
+                                ) : (
+                                    <table className="w-full text-left">
+                                        <thead className="bg-gray-50 border-b border-gray-100 font-black uppercase text-[10px] text-gray-400 tracking-widest">
+                                            <tr>
+                                                <th className="p-6">Worker</th>
+                                                <th className="p-6">Task</th>
+                                                <th className="p-6">Deadline</th>
+                                                <th className="p-6">Progress</th>
+                                                <th className="p-6">Status</th>
+                                                <th className="p-6 text-center">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-50 font-bold text-gray-800">
+                                            {tasks.map((task) => {
+                                                const daysLeft = getDaysLeft(task.deadline)
+                                                const progress = getProgressPercent(task.created_at, task.deadline)
+                                                const isDone = task.status === 'done'
+                                                const isUrgent = daysLeft <= 2 && !isDone
+                                                const isOverdue = daysLeft < 0 && !isDone
+                                                const barColor = isOverdue ? '#ef4444' : isUrgent ? '#f97316' : daysLeft <= 5 ? '#f59e0b' : '#EA1E63'
+
+                                                return (
+                                                    <tr key={task.id} className="hover:bg-pink-50/10">
+                                                        <td className="p-6">
+                                                            <div className="text-xs">{task.worker_name}</div>
+                                                            <div className="text-[9px] text-gray-400">{task.worker_phone}</div>
+                                                        </td>
+                                                        <td className="p-6">
+                                                            <div className="text-xs max-w-[160px]">{task.title}</div>
+                                                            {task.description && <div className="text-[9px] text-gray-400 line-clamp-1">{task.description}</div>}
+                                                        </td>
+                                                        <td className="p-6">
+                                                            <div className="text-xs">{new Date(task.deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                                                            <div className={`text-[9px] font-black ${isOverdue ? 'text-red-500' : isUrgent ? 'text-orange-500' : 'text-gray-400'}`}>
+                                                                {isDone ? '—' : isOverdue ? `${Math.abs(daysLeft)}d overdue` : daysLeft === 0 ? 'Due Today!' : `${daysLeft}d left`}
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-6 w-40">
+                                                            {!isDone && (
+                                                                <div className="h-2 bg-gray-100 rounded-full overflow-hidden w-32">
+                                                                    <div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, backgroundColor: barColor }} />
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-6">
+                                                            <span className={`text-[8px] font-black uppercase px-3 py-1 rounded-full ${isDone ? 'bg-green-50 text-green-500' : isOverdue ? 'bg-red-50 text-red-500' : isUrgent ? 'bg-orange-50 text-orange-500' : 'bg-pink-50 text-[#EA1E63]'}`}>
+                                                                {isDone ? 'Done' : isOverdue ? 'Overdue' : isUrgent ? 'Urgent' : 'Active'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-6">
+                                                            <div className="flex items-center justify-center gap-3">
+                                                                {!isDone && (
+                                                                    <button onClick={() => handleMarkTaskDone(task.id)} className="text-green-400 hover:text-green-600 transition-colors">
+                                                                        <CheckCircle2 size={18} />
+                                                                    </button>
+                                                                )}
+                                                                <button onClick={() => handleDeleteTask(task.id)} className="text-gray-300 hover:text-red-400 transition-colors">
+                                                                    <Trash2 size={18} />
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            })}
+                                        </tbody>
+                                    </table>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {/* CUSTOMER WHATSAPP TAB */}
                     {activeTab === 'customers' && (
                         <div className="max-w-4xl mx-auto bg-white p-16 rounded-[60px] shadow-2xl border border-gray-100">
@@ -232,6 +438,7 @@ export default function AdminDashboard() {
                                     <input required type="text" value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} className="w-full bg-gray-50 p-6 rounded-[30px] font-bold outline-none border-2 border-transparent focus:border-pink-100" placeholder="Full Name" />
                                     <input required type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full bg-gray-50 p-6 rounded-[30px] font-bold outline-none border-2 border-transparent focus:border-pink-100" placeholder="worker@emma.com" />
                                     <input required type="text" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full bg-pink-50/20 p-6 rounded-[30px] border-2 border-pink-100 text-[#EA1E63] font-black outline-none" placeholder="Password" />
+                                    <input type="text" value={formData.postLabel} onChange={(e) => setFormData({ ...formData, postLabel: e.target.value })} className="w-full bg-gray-50 p-6 rounded-[30px] font-bold outline-none border-2 border-transparent focus:border-pink-100" placeholder="Post Label (e.g. Senior Agent)" />
                                 </div>
                                 <div className="col-span-4 bg-gray-50 p-8 rounded-[40px] space-y-3">
                                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Permissions</p>
@@ -262,17 +469,20 @@ export default function AdminDashboard() {
                     )}
                 </div>
 
-                <footer className="p-8 text-center"><p className="text-[10px] text-gray-300 font-black uppercase tracking-[0.3em] italic">Made By Kossa • Enterprise v2.0.1</p></footer>
+                <footer className="p-8 text-center"><p className="text-[10px] text-gray-300 font-black uppercase tracking-[0.3em] italic">Made By Kossa • Enterprise v2.0.2</p></footer>
             </div>
 
             {/* Target Modal */}
             {editingWorker && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-[100] p-12">
                     <div className="bg-white w-full max-w-5xl rounded-[70px] p-16 shadow-2xl animate-in zoom-in-95 relative">
-                        <div className="flex justify-between items-start mb-12"><div><h2 className="text-4xl font-black italic tracking-tighter text-gray-800">Sales Config</h2><p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-2">{editingWorker.full_name}</p></div><button onClick={() => setEditingWorker(null)} className="h-12 w-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-300">✕</button></div>
+                        <div className="flex justify-between items-start mb-12">
+                            <div><h2 className="text-4xl font-black italic tracking-tighter text-gray-800">Sales Config</h2><p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-2">{editingWorker.full_name}</p></div>
+                            <button onClick={() => setEditingWorker(null)} className="h-12 w-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-300">✕</button>
+                        </div>
                         <div className="grid grid-cols-3 gap-6">
                             {['p1', 'p2', 'p3', 'p4', 'p5', 'p6'].map((p, i) => {
-                                const names = ["Silver", "Gold", "VIP", "P.Silver", "P.Gold", "P.VIP"];
+                                const names = ["Silver", "Gold", "VIP", "P.Silver", "P.Gold", "P.VIP"]
                                 return (
                                     <div key={p} className="bg-gray-50 p-8 rounded-[40px] border border-gray-100 space-y-4">
                                         <p className="text-[10px] font-black text-[#EA1E63] uppercase italic">{names[i]}</p>
@@ -285,6 +495,92 @@ export default function AdminDashboard() {
                         <button onClick={handleUpdateWorkerTargets} disabled={updating} className="w-full mt-10 bg-[#EA1E63] text-white font-black p-8 rounded-full shadow-2xl flex items-center justify-center gap-4 text-xl">
                             {updating ? <Loader2 className="animate-spin" /> : <>SAVE WORKER CONFIG <ShieldCheck size={24} /></>}
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Add Task Modal */}
+            {taskFormOpen && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-[100] p-12">
+                    <div className="bg-white w-full max-w-2xl rounded-[60px] p-14 shadow-2xl">
+                        <div className="flex justify-between items-center mb-10">
+                            <div>
+                                <h2 className="text-3xl font-black italic tracking-tighter text-gray-800">New Task</h2>
+                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Assign to a worker</p>
+                            </div>
+                            <button onClick={() => setTaskFormOpen(false)} className="h-12 w-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 hover:text-red-400">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleAddTask} className="space-y-5">
+                            {/* Worker Select */}
+                            <select
+                                required
+                                value={taskForm.worker_id}
+                                onChange={(e) => handleWorkerSelect(e.target.value)}
+                                className="w-full bg-gray-50 p-5 rounded-[25px] font-bold text-gray-700 outline-none border-2 border-transparent focus:border-pink-100 appearance-none"
+                            >
+                                <option value="">Select Worker</option>
+                                {workers.map(w => (
+                                    <option key={w.id} value={w.id}>{w.full_name} — {w.post_label}</option>
+                                ))}
+                            </select>
+
+                            {/* Worker Phone */}
+                            <input
+                                required
+                                type="text"
+                                value={taskForm.worker_phone}
+                                onChange={(e) => setTaskForm({ ...taskForm, worker_phone: e.target.value })}
+                                className="w-full bg-gray-50 p-5 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100"
+                                placeholder="Worker Phone (077...)"
+                            />
+
+                            {/* Task Title */}
+                            <input
+                                required
+                                type="text"
+                                value={taskForm.title}
+                                onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
+                                className="w-full bg-gray-50 p-5 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100"
+                                placeholder="Task Title"
+                            />
+
+                            {/* Description */}
+                            <textarea
+                                rows={3}
+                                value={taskForm.description}
+                                onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
+                                className="w-full bg-gray-50 p-5 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100 resize-none"
+                                placeholder="Description (optional)"
+                            />
+
+                            {/* Deadline */}
+                            <div className="relative">
+                                <Calendar size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
+                                <input
+                                    required
+                                    type="date"
+                                    value={taskForm.deadline}
+                                    onChange={(e) => setTaskForm({ ...taskForm, deadline: e.target.value })}
+                                    className="w-full bg-gray-50 p-5 pl-12 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100"
+                                />
+                            </div>
+
+                            {/* SMS Reminder Info */}
+                            <div className="bg-pink-50/50 rounded-[20px] p-5 border border-pink-100">
+                                <p className="text-[9px] font-black text-[#EA1E63] uppercase tracking-widest mb-2">Auto SMS Reminders (8:00 AM)</p>
+                                <div className="flex gap-3">
+                                    {['5 days left', '3 days left', 'Deadline day'].map(d => (
+                                        <span key={d} className="text-[8px] font-black text-gray-400 bg-white px-3 py-1.5 rounded-xl border border-pink-100">{d}</span>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <button type="submit" disabled={taskLoading} className="w-full bg-[#EA1E63] text-white font-black p-6 rounded-[30px] shadow-xl flex items-center justify-center gap-3 text-base">
+                                {taskLoading ? <Loader2 className="animate-spin" /> : <><Plus size={20} /> ADD TASK</>}
+                            </button>
+                        </form>
                     </div>
                 </div>
             )}
