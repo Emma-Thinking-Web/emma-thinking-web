@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
     Users, UserPlus, Trash2, Loader2, ShieldCheck, LogOut,
-    Briefcase, Send, ClipboardList, Plus, Calendar, X, CheckCircle2
+    Briefcase, Send, ClipboardList, Plus, Calendar, X, CheckCircle2, MapPin
 } from 'lucide-react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
@@ -19,6 +19,9 @@ export default function AdminDashboard() {
         targets?: any
         commission_rates?: any
         level?: string
+        last_lat?: number
+        last_lng?: number
+        last_seen?: string
     }
 
     interface Task {
@@ -46,6 +49,9 @@ export default function AdminDashboard() {
     const [taskLoading, setTaskLoading] = useState(false)
     const router = useRouter()
 
+    // Location States
+    const [selectedWorkerLocation, setSelectedWorkerLocation] = useState<Worker | null>(null)
+
     // Customer WhatsApp States
     const [custName, setCustName] = useState('')
     const [custPhone, setCustPhone] = useState('')
@@ -71,7 +77,7 @@ export default function AdminDashboard() {
         { id: 'leads', label: 'Leads' },
         { id: 'tasks', label: 'Tasks' },
         { id: 'matching', label: 'Matching' },
-        { id: 'profile', label: 'Profile' }
+        { id: 'Profile', label: 'Profile' }
     ]
 
     const [formData, setFormData] = useState({
@@ -188,11 +194,10 @@ export default function AdminDashboard() {
 
     // ── TASK FUNCTIONS ──────────────────────────────────────────
     const handleWorkerSelect = (workerId: string) => {
-        const worker = workers.find(w => w.id === workerId)
         setTaskForm(prev => ({
             ...prev,
             worker_id: workerId,
-            worker_phone: '',  // admin fills phone manually per task
+            worker_phone: '',
         }))
     }
 
@@ -257,6 +262,22 @@ export default function AdminDashboard() {
         return Math.min(100, Math.max(0, Math.round((elapsed / total) * 100)))
     }
 
+    function formatLastSeen(lastSeen?: string): string {
+        if (!lastSeen) return 'Never'
+        const date = new Date(lastSeen)
+        const now = new Date()
+        const diffMs = now.getTime() - date.getTime()
+        const diffMins = Math.floor(diffMs / 60000)
+        const diffHours = Math.floor(diffMs / 3600000)
+        const diffDays = Math.floor(diffMs / 86400000)
+        if (diffMins < 1) return 'Just now'
+        if (diffMins < 60) return `${diffMins}m ago`
+        if (diffHours < 24) return `${diffHours}h ago`
+        return `${diffDays}d ago`
+    }
+
+    const workersWithLocation = workers.filter(w => w.last_lat && w.last_lng)
+
     return (
         <div className="fixed inset-0 w-screen h-screen bg-gray-50 flex font-sans text-gray-900 overflow-hidden">
             {/* Sidebar */}
@@ -270,6 +291,7 @@ export default function AdminDashboard() {
                     {[
                         { id: 'workers', icon: <Users size={18} />, label: 'Workers List' },
                         { id: 'tasks', icon: <ClipboardList size={18} />, label: 'Tasks' },
+                        { id: 'locations', icon: <MapPin size={18} />, label: 'Locations' },
                         { id: 'customers', icon: <Send size={18} />, label: 'New Customer' },
                         { id: 'add', icon: <UserPlus size={18} />, label: 'Registration' },
                         { id: 'packages', icon: <Briefcase size={18} />, label: 'Packages' },
@@ -298,10 +320,92 @@ export default function AdminDashboard() {
 
                 <div className="flex-grow p-12 overflow-y-auto">
 
+                    {/* ── LOCATIONS TAB ── */}
+                    {activeTab === 'locations' && (
+                        <div className="space-y-6 max-w-6xl mx-auto">
+                            <div>
+                                <h2 className="text-xl font-black text-gray-800 italic tracking-tighter">Worker Locations</h2>
+                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
+                                    Last seen when they opened the app
+                                </p>
+                            </div>
+
+                            {/* Worker Location Cards */}
+                            <div className="grid grid-cols-3 gap-5">
+                                {workers.map((w) => {
+                                    const hasLocation = w.last_lat && w.last_lng
+                                    return (
+                                        <button
+                                            key={w.id}
+                                            onClick={() => hasLocation ? setSelectedWorkerLocation(w) : null}
+                                            className={`bg-white rounded-[28px] p-6 border text-left transition-all space-y-4 ${hasLocation
+                                                ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-pink-100 cursor-pointer'
+                                                : 'border-gray-50 opacity-50 cursor-not-allowed'
+                                                }`}
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="h-10 w-10 bg-[#FFE1EC] rounded-xl flex items-center justify-center text-[#EA1E63] font-black text-sm uppercase">
+                                                        {w.full_name?.substring(0, 2)}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs font-black text-gray-800">{w.full_name}</p>
+                                                        <p className="text-[9px] text-[#EA1E63] font-bold">{w.post_label}</p>
+                                                    </div>
+                                                </div>
+                                                <div className={`w-2.5 h-2.5 rounded-full ${hasLocation ? 'bg-green-400' : 'bg-gray-200'}`} />
+                                            </div>
+
+                                            {hasLocation ? (
+                                                <div className="space-y-2">
+                                                    {/* Mini map preview */}
+                                                    <div className="w-full h-28 rounded-2xl overflow-hidden border border-gray-100">
+                                                        <iframe
+                                                            width="100%"
+                                                            height="100%"
+                                                            style={{ border: 0 }}
+                                                            loading="lazy"
+                                                            src={`https://maps.google.com/maps?q=${w.last_lat},${w.last_lng}&z=14&output=embed`}
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-center justify-between px-1">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <MapPin size={10} className="text-[#EA1E63]" />
+                                                            <span className="text-[9px] font-black text-gray-500">
+                                                                {w.last_lat?.toFixed(4)}, {w.last_lng?.toFixed(4)}
+                                                            </span>
+                                                        </div>
+                                                        <span className="text-[9px] font-black text-gray-400">
+                                                            {formatLastSeen(w.last_seen)}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-[8px] text-[#EA1E63] font-black uppercase tracking-widest text-center">
+                                                        Tap to open full map →
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <div className="w-full h-28 rounded-2xl bg-gray-50 flex flex-col items-center justify-center gap-2">
+                                                    <MapPin size={20} className="text-gray-200" />
+                                                    <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest">No location yet</p>
+                                                </div>
+                                            )}
+                                        </button>
+                                    )
+                                })}
+                            </div>
+
+                            {workers.length === 0 && (
+                                <div className="bg-white rounded-[40px] p-16 text-center border border-gray-100">
+                                    <MapPin size={40} className="text-gray-200 mx-auto mb-4" />
+                                    <p className="text-sm font-black text-gray-300">No workers found.</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* ── TASKS TAB ── */}
                     {activeTab === 'tasks' && (
                         <div className="space-y-6 max-w-5xl mx-auto">
-                            {/* Add Task Button */}
                             <div className="flex justify-between items-center">
                                 <div>
                                     <h2 className="text-xl font-black text-gray-800 italic tracking-tighter">Worker Tasks</h2>
@@ -313,7 +417,6 @@ export default function AdminDashboard() {
                                 </button>
                             </div>
 
-                            {/* Tasks Table */}
                             <div className="bg-white rounded-[40px] shadow-xl border border-gray-100 overflow-hidden">
                                 {tasks.length === 0 ? (
                                     <div className="p-16 text-center">
@@ -513,7 +616,6 @@ export default function AdminDashboard() {
                             </button>
                         </div>
                         <form onSubmit={handleAddTask} className="space-y-5">
-                            {/* Worker Select */}
                             <select
                                 required
                                 value={taskForm.worker_id}
@@ -525,8 +627,6 @@ export default function AdminDashboard() {
                                     <option key={w.id} value={w.id}>{w.full_name} — {w.post_label}</option>
                                 ))}
                             </select>
-
-                            {/* Worker Phone */}
                             <input
                                 required
                                 type="text"
@@ -535,8 +635,6 @@ export default function AdminDashboard() {
                                 className="w-full bg-gray-50 p-5 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100"
                                 placeholder="Worker Phone (077...)"
                             />
-
-                            {/* Task Title */}
                             <input
                                 required
                                 type="text"
@@ -545,8 +643,6 @@ export default function AdminDashboard() {
                                 className="w-full bg-gray-50 p-5 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100"
                                 placeholder="Task Title"
                             />
-
-                            {/* Description */}
                             <textarea
                                 rows={3}
                                 value={taskForm.description}
@@ -554,8 +650,6 @@ export default function AdminDashboard() {
                                 className="w-full bg-gray-50 p-5 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100 resize-none"
                                 placeholder="Description (optional)"
                             />
-
-                            {/* Deadline */}
                             <div className="relative">
                                 <Calendar size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
                                 <input
@@ -566,8 +660,6 @@ export default function AdminDashboard() {
                                     className="w-full bg-gray-50 p-5 pl-12 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100"
                                 />
                             </div>
-
-                            {/* SMS Reminder Info */}
                             <div className="bg-pink-50/50 rounded-[20px] p-5 border border-pink-100">
                                 <p className="text-[9px] font-black text-[#EA1E63] uppercase tracking-widest mb-2">Auto SMS Reminders (8:00 AM)</p>
                                 <div className="flex gap-3">
@@ -576,11 +668,71 @@ export default function AdminDashboard() {
                                     ))}
                                 </div>
                             </div>
-
                             <button type="submit" disabled={taskLoading} className="w-full bg-[#EA1E63] text-white font-black p-6 rounded-[30px] shadow-xl flex items-center justify-center gap-3 text-base">
                                 {taskLoading ? <Loader2 className="animate-spin" /> : <><Plus size={20} /> ADD TASK</>}
                             </button>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Full Map Modal */}
+            {selectedWorkerLocation && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-xl flex items-center justify-center z-[100] p-12">
+                    <div className="bg-white w-full max-w-4xl rounded-[50px] overflow-hidden shadow-2xl">
+                        {/* Modal Header */}
+                        <div className="p-8 flex items-center justify-between border-b border-gray-100">
+                            <div className="flex items-center gap-4">
+                                <div className="h-12 w-12 bg-[#FFE1EC] rounded-xl flex items-center justify-center text-[#EA1E63] font-black uppercase">
+                                    {selectedWorkerLocation.full_name?.substring(0, 2)}
+                                </div>
+                                <div>
+                                    <p className="font-black text-gray-800">{selectedWorkerLocation.full_name}</p>
+                                    <p className="text-[10px] text-[#EA1E63] font-bold">{selectedWorkerLocation.post_label}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-6">
+                                <div className="text-right">
+                                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Last Seen</p>
+                                    <p className="text-sm font-black text-gray-700">{formatLastSeen(selectedWorkerLocation.last_seen)}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Coordinates</p>
+                                    <p className="text-xs font-black text-gray-700">
+                                        {selectedWorkerLocation.last_lat?.toFixed(5)}, {selectedWorkerLocation.last_lng?.toFixed(5)}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => setSelectedWorkerLocation(null)}
+                                    className="h-10 w-10 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 hover:text-red-400"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Full Map */}
+                        <div className="w-full h-[500px]">
+                            <iframe
+                                width="100%"
+                                height="100%"
+                                style={{ border: 0 }}
+                                loading="lazy"
+                                src={`https://maps.google.com/maps?q=${selectedWorkerLocation.last_lat},${selectedWorkerLocation.last_lng}&z=16&output=embed`}
+                            />
+                        </div>
+
+                        {/* Open in Google Maps */}
+                        <div className="p-6 flex justify-center border-t border-gray-100">
+                            <a
+                                href={`https://www.google.com/maps?q=${selectedWorkerLocation.last_lat},${selectedWorkerLocation.last_lng}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-[#EA1E63] text-white font-black px-10 py-4 rounded-[20px] flex items-center gap-3 text-sm shadow-lg shadow-pink-100"
+                            >
+                                <MapPin size={16} /> Open in Google Maps
+                            </a>
+                        </div>
                     </div>
                 </div>
             )}

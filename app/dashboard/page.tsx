@@ -352,7 +352,19 @@ export default function Dashboard() {
                 .eq('id', user.id)
                 .single()
             if (profileData) setProfile(profileData)
-
+            // Grab location on login
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(async (pos) => {
+                    await supabase
+                        .from('profiles')
+                        .update({
+                            last_lat: pos.coords.latitude,
+                            last_lng: pos.coords.longitude,
+                            last_seen: new Date().toISOString(),
+                        })
+                        .eq('id', user.id)
+                })
+            }
             const { data: taskData } = await supabase
                 .from('tasks')
                 .select('*')
