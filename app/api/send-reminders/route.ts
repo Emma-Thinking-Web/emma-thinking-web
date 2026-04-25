@@ -48,12 +48,19 @@ export async function GET(request: Request) {
 
         for (const task of tasks) {
             const daysLeft = getDaysLeft(task.deadline)
+            const deadlineFormatted = new Date(task.deadline).toLocaleDateString('en-GB', {
+                day: 'numeric', month: 'long', year: 'numeric'
+            })
 
             // ── 5 DAYS REMINDER ──
             if (daysLeft === 5 && !task.sms_sent_5) {
-                const msg = `Emma Thinking Reminder 🔔\n\nHi ${task.worker_name},\n\nYou have a task due in 5 days:\n"${task.title}"\n\nDeadline: ${new Date(task.deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}\n\nPlease make sure to complete it on time. - Emma Admin`
-                const ok = await sendSMS(task.worker_phone, msg)
-                if (ok) {
+                const workerMsg = `Emma Thinking Reminder 🔔\n\nHello ${task.worker_name}, you have only 5 days left to complete your "${task.title}".\n\nDeadline: ${deadlineFormatted}\n\nPlease make sure to complete it on time. - Emma Admin`
+                const adminMsg = `Emma Thinking 🔔 Reminder Sent\n\n${task.worker_name} has been reminded — 5 days left for:\n"${task.title}"\n\nDeadline: ${deadlineFormatted}`
+
+                const workerOk = await sendSMS(task.worker_phone, workerMsg)
+                await sendSMS(ADMIN_PHONE, adminMsg)
+
+                if (workerOk) {
                     updates.push(() => supabase.from('tasks').update({ sms_sent_5: true }).eq('id', task.id))
                     smsSentCount++
                 }
@@ -61,9 +68,13 @@ export async function GET(request: Request) {
 
             // ── 3 DAYS REMINDER ──
             if (daysLeft === 3 && !task.sms_sent_3) {
-                const msg = `Emma Thinking ⚠️ Reminder\n\nHi ${task.worker_name},\n\nOnly 3 days left for your task:\n"${task.title}"\n\nDeadline: ${new Date(task.deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}\n\nDon't forget! - Emma Admin`
-                const ok = await sendSMS(task.worker_phone, msg)
-                if (ok) {
+                const workerMsg = `Emma Thinking ⚠️ Reminder\n\nHello ${task.worker_name}, you have only 3 days left to complete your "${task.title}".\n\nDeadline: ${deadlineFormatted}\n\nDon't forget! - Emma Admin`
+                const adminMsg = `Emma Thinking ⚠️ Reminder Sent\n\n${task.worker_name} has been reminded — 3 days left for:\n"${task.title}"\n\nDeadline: ${deadlineFormatted}`
+
+                const workerOk = await sendSMS(task.worker_phone, workerMsg)
+                await sendSMS(ADMIN_PHONE, adminMsg)
+
+                if (workerOk) {
                     updates.push(() => supabase.from('tasks').update({ sms_sent_3: true }).eq('id', task.id))
                     smsSentCount++
                 }
@@ -71,9 +82,13 @@ export async function GET(request: Request) {
 
             // ── DEADLINE DAY FINAL WARNING ──
             if (daysLeft === 0 && !task.sms_sent_0) {
-                const msg = `Emma Thinking 🚨 FINAL WARNING\n\nHi ${task.worker_name},\n\nTODAY is the deadline for:\n"${task.title}"\n\nPlease complete and mark it done immediately!\n- Emma Admin`
-                const ok = await sendSMS(task.worker_phone, msg)
-                if (ok) {
+                const workerMsg = `Emma Thinking 🚨 FINAL WARNING\n\nHello ${task.worker_name}, TODAY is the deadline for your "${task.title}".\n\nPlease complete and mark it done immediately! - Emma Admin`
+                const adminMsg = `Emma Thinking 🚨 Deadline Today\n\n${task.worker_name}'s task is due TODAY:\n"${task.title}"\n\nNot yet completed.`
+
+                const workerOk = await sendSMS(task.worker_phone, workerMsg)
+                await sendSMS(ADMIN_PHONE, adminMsg)
+
+                if (workerOk) {
                     updates.push(() => supabase.from('tasks').update({ sms_sent_0: true }).eq('id', task.id))
                     smsSentCount++
                 }
@@ -89,8 +104,8 @@ export async function GET(request: Request) {
 
         if (doneTasks && doneTasks.length > 0) {
             for (const done of doneTasks) {
-                const msg = `Emma Thinking ✅ Task Completed!\n\n${done.worker_name} has completed:\n"${done.title}"\n\nDeadline was: ${new Date(done.deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}`
-                await sendSMS(ADMIN_PHONE, msg)
+                const adminMsg = `Emma Thinking ✅ Task Completed!\n\n${done.worker_name} has successfully completed "${done.title}".\n\nDeadline was: ${new Date(done.deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}`
+                await sendSMS(ADMIN_PHONE, adminMsg)
             }
         }
 
