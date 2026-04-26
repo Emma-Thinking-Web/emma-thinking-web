@@ -17,19 +17,10 @@ async function sendWhatsApp(to: string, params: {
     package_name: string
     invoice_link: string
 }) {
-    // Clean number — strip everything except digits
     let num = to.replace(/\D/g, '')
-
-    // Remove leading zeros
     if (num.startsWith('0')) num = '94' + num.slice(1)
-
-    // Remove double 94 (e.g. 9494XXXXXXX)
     if (num.startsWith('9494')) num = num.slice(2)
-
-    // Add 94 if missing
     if (!num.startsWith('94')) num = '94' + num
-
-    console.log('Sending WhatsApp to:', num)
 
     const url = `https://graph.facebook.com/v21.0/${PHONE_ID}/messages`
 
@@ -43,11 +34,11 @@ async function sendWhatsApp(to: string, params: {
             components: [{
                 type: 'body',
                 parameters: [
-                    { type: 'text', parameter_name: 'customer_name', text: params.customer_name },
-                    { type: 'text', parameter_name: 'invoice_number', text: params.invoice_number },
-                    { type: 'text', parameter_name: 'amount', text: params.amount },
-                    { type: 'text', parameter_name: 'package_name', text: params.package_name },
-                    { type: 'text', parameter_name: 'invoice_link', text: params.invoice_link },
+                    { type: 'text', text: params.customer_name },
+                    { type: 'text', text: params.invoice_number },
+                    { type: 'text', text: params.amount },
+                    { type: 'text', text: params.package_name },
+                    { type: 'text', text: params.invoice_link },
                 ]
             }]
         }
@@ -61,12 +52,10 @@ async function sendWhatsApp(to: string, params: {
         },
         body: JSON.stringify(body)
     })
-
     const result = await res.json()
-    console.log('WhatsApp API result:', JSON.stringify(result))
+    console.log('WhatsApp result:', JSON.stringify(result))
     return result
 }
-
 async function getNextInvoiceNumber(): Promise<string> {
     try {
         const { data, error } = await supabaseAdmin
