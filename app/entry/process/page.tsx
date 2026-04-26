@@ -3,7 +3,7 @@
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useState, useEffect, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Loader2, MessageCircle, Phone, UserCheck, ClipboardCheck, ArrowLeft, Send, Clock, Upload } from 'lucide-react'
+import { Loader2, MessageCircle, Phone, UserCheck, ClipboardCheck, ArrowLeft, Send, Clock, Upload, UserPlus } from 'lucide-react'
 
 function ProcessContent() {
     const searchParams = useSearchParams()
@@ -19,12 +19,18 @@ function ProcessContent() {
     const [selectedPackage, setSelectedPackage] = useState('')
     const [history, setHistory] = useState<any[]>([])
 
-    // ── NEW ORDER STATES ──────────────────────────────────────
+    // ── ORDER STATES ──────────────────────────────────────────
     const [paymentMethod, setPaymentMethod] = useState('')
     const [discountPercent, setDiscountPercent] = useState(0)
     const [slipFile, setSlipFile] = useState<File | null>(null)
     const [kokoId, setKokoId] = useState('')
     const [invoiceSent, setInvoiceSent] = useState(false)
+
+    // ── TRANSFER STATES ───────────────────────────────────────
+    const [workers, setWorkers] = useState<any[]>([])
+    const [selectedWorker, setSelectedWorker] = useState('')
+    const [transferring, setTransferring] = useState(false)
+    const [transferDone, setTransferDone] = useState(false)
     // ─────────────────────────────────────────────────────────
 
     const steps = [
@@ -45,13 +51,11 @@ function ProcessContent() {
         { id: 'custom', name: 'Custom', price: 0, comm: 0.05 },
     ]
 
-    // ── CALCULATED VALUES ─────────────────────────────────────
     const pkg = packages.find(p => p.id === selectedPackage)
     const baseAmount = pkg?.price || 0
     const finalAmount = discountPercent > 0
         ? Math.round(baseAmount - (baseAmount * discountPercent / 100))
         : baseAmount
-    // ─────────────────────────────────────────────────────────
 
     const currentIndex = steps.findIndex(s => s.id === currentStepId)
     const progressWidth = ((currentIndex + 1) / steps.length) * 100
@@ -60,13 +64,30 @@ function ProcessContent() {
     useEffect(() => {
         const fetchHistory = async () => {
             if (!phone) return
-            const { data } = await supabase.from('leads_history').select('*').eq('phone_number', phone).order('created_at', { ascending: false })
+            const { data } = await supabase
+                .from('leads_history')
+                .select('*')
+                .eq('phone_number', phone)
+                .order('created_at', { ascending: false })
             if (data) {
                 setHistory(data)
                 if (data.length > 0) setIsPriority(data[0].is_priority)
+                // Check if invoice already sent for this phone
+                const orderDone = data.some(d => d.last_step === 'order')
+                if (orderDone) setInvoiceSent(true)
             }
         }
+
+        const fetchWorkers = async () => {
+            const { data } = await supabase
+                .from('profiles')
+                .select('id, full_name, role, post_label, avatar_url')
+                .order('full_name', { ascending: true })
+            if (data) setWorkers(data)
+        }
+
         fetchHistory()
+        fetchWorkers()
     }, [phone])
 
     const handleBack = () => {
@@ -76,30 +97,25 @@ function ProcessContent() {
 
     // ── ORIGINAL SUBMIT (messages/calls/feedback) ─────────────
     const handleStepSubmit = async () => {
-        if (!notes && currentStepId !== 'order') return alert("Please add some notes!")
-
+        if (!notes) return alert('Please add some notes!')
         setLoading(true)
         try {
             const { data: { user } } = await supabase.auth.getUser()
-            const finalPriority = currentStepId === 'order' ? false : isPriority
-
-            const insertData: any = {
+            const { error } = await supabase.from('leads_history').insert([{
                 worker_id: user?.id,
                 phone_number: phone,
                 last_step: currentStepId,
                 notes: notes,
-                is_priority: finalPriority,
+                is_priority: isPriority,
                 created_at: new Date().toISOString()
-            }
-
-            const { error } = await supabase.from('leads_history').insert([insertData])
+            }])
             if (error) throw error
             router.push('/entry')
         } catch (err: any) { alert(err.message) } finally { setLoading(false) }
     }
     // ─────────────────────────────────────────────────────────
 
-    // ── NEW ORDER SUBMIT ──────────────────────────────────────
+    // ── ORDER SUBMIT ──────────────────────────────────────────
     const handleOrderSubmit = async () => {
         if (!customerName) return alert('Enter client name!')
         if (!selectedPackage) return alert('Select a package!')
@@ -125,14 +141,22 @@ function ProcessContent() {
             }
             const invoiceNumber = `EM${String(nextNum).padStart(5, '0')}`
 
-            // Convert slip to base64 if exists
+            // ── Safe base64 conversion (fixes call stack error) ──
             let slipBase64 = null
             let slipMimeType = null
             if (slipFile) {
-                const buf = await slipFile.arrayBuffer()
-                slipBase64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
                 slipMimeType = slipFile.type
+                const buf = await slipFile.arrayBuffer()
+                const bytes = new Uint8Array(buf)
+                let binary = ''
+                const chunkSize = 8192
+                for (let i = 0; i < bytes.length; i += chunkSize) {
+                    const chunk = bytes.subarray(i, i + chunkSize)
+                    binary += String.fromCharCode(...chunk)
+                }
+                slipBase64 = btoa(binary)
             }
+            // ────────────────────────────────────────────────────
 
             const res = await fetch('/api/send-invoice', {
                 method: 'POST',
@@ -170,11 +194,40 @@ function ProcessContent() {
             }])
 
             setInvoiceSent(true)
-            setTimeout(() => router.push('/entry'), 2500)
         } catch (err: any) {
             alert('Error: ' + err.message)
         } finally {
             setLoading(false)
+        }
+    }
+    // ─────────────────────────────────────────────────────────
+
+    // ── TRANSFER SUBMIT ───────────────────────────────────────
+    const handleTransfer = async () => {
+        if (!selectedWorker) return alert('Please select a worker!')
+        setTransferring(true)
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+            const worker = workers.find(w => w.id === selectedWorker)
+
+            const { error } = await supabase.from('leads_history').insert([{
+                worker_id: user?.id,
+                phone_number: phone,
+                last_step: 'transfer',
+                notes: `Transferred to ${worker?.full_name}`,
+                transferred_to: selectedWorker,
+                transferred_to_name: worker?.full_name,
+                is_priority: false,
+                created_at: new Date().toISOString()
+            }])
+
+            if (error) throw error
+            setTransferDone(true)
+            setTimeout(() => router.push('/entry'), 2500)
+        } catch (err: any) {
+            alert('Error: ' + err.message)
+        } finally {
+            setTransferring(false)
         }
     }
     // ─────────────────────────────────────────────────────────
@@ -213,7 +266,9 @@ function ProcessContent() {
                                 <div key={idx} className="relative bg-gray-50 p-5 rounded-[30px] border border-gray-100 shadow-sm">
                                     <div className="absolute -left-[41px] top-1 h-5 w-5 bg-white border-4 border-[#EA1E63] rounded-full shadow-sm"></div>
                                     <div className="flex justify-between items-center mb-2">
-                                        <span className="text-[9px] font-black text-white bg-[#EA1E63] px-3 py-1 rounded-full uppercase">{item.last_step}</span>
+                                        <span className={`text-[9px] font-black text-white px-3 py-1 rounded-full uppercase ${item.last_step === 'transfer' ? 'bg-blue-400' : item.last_step === 'order' ? 'bg-green-500' : 'bg-[#EA1E63]'}`}>
+                                            {item.last_step === 'transfer' ? '🔁 Transfer' : item.last_step}
+                                        </span>
                                         <span className="text-[8px] text-gray-400 font-bold">{new Date(item.created_at).toLocaleTimeString()}</span>
                                     </div>
                                     <p className="text-xs text-gray-600 italic">"{item.notes}"</p>
@@ -230,16 +285,85 @@ function ProcessContent() {
                     <div className="bg-gray-50 p-8 rounded-[40px] border border-gray-100 relative shadow-sm">
                         <h2 className="text-xl font-black capitalize mb-1 text-gray-800">{currentStepId} Entry</h2>
 
-                        {/* ── ORDER STEP ────────────────────────────────────── */}
+                        {/* ── ORDER STEP ─────────────────────────────────── */}
                         {currentStepId === 'order' ? (
                             <div className="space-y-4 mt-4">
-                                {invoiceSent ? (
-                                    <div className="flex flex-col items-center justify-center py-10 gap-3">
-                                        <div className="text-5xl">✅</div>
-                                        <p className="font-black text-gray-700 text-lg">Invoice Sent!</p>
-                                        <p className="text-[10px] text-gray-400 uppercase tracking-widest">Redirecting...</p>
+
+                                {/* ── TRANSFER SECTION (shows after invoice sent) ── */}
+                                {invoiceSent && (
+                                    <div className="space-y-4">
+                                        {transferDone ? (
+                                            <div className="flex flex-col items-center justify-center py-10 gap-3">
+                                                <div className="text-5xl">🔁</div>
+                                                <p className="font-black text-gray-700 text-lg">Customer Transferred!</p>
+                                                <p className="text-[10px] text-gray-400 uppercase tracking-widest">Redirecting...</p>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {/* Invoice done banner */}
+                                                <div className="flex flex-col items-center justify-center py-6 gap-2 bg-green-50 rounded-[20px] border border-green-100">
+                                                    <div className="text-3xl">✅</div>
+                                                    <p className="font-black text-green-600">Invoice Already Sent!</p>
+                                                    <p className="text-[10px] text-gray-400 uppercase tracking-widest">Now transfer this customer</p>
+                                                </div>
+
+                                                {/* Worker list */}
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">Select Worker to Transfer</label>
+                                                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                                                        {workers.map(w => (
+                                                            <button
+                                                                key={w.id}
+                                                                onClick={() => setSelectedWorker(w.id)}
+                                                                className={`w-full flex items-center gap-4 p-4 rounded-[18px] border-2 transition-all text-left ${selectedWorker === w.id ? 'border-[#EA1E63] bg-pink-50' : 'border-gray-100 bg-white'}`}
+                                                            >
+                                                                {/* Avatar */}
+                                                                <div className="h-10 w-10 rounded-full bg-pink-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                                                                    {w.avatar_url
+                                                                        ? <img src={w.avatar_url} alt={w.full_name} className="h-full w-full object-cover" />
+                                                                        : <span className="text-[#EA1E63] font-black text-sm">{w.full_name?.charAt(0)}</span>
+                                                                    }
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="font-black text-gray-800 text-sm truncate">{w.full_name}</p>
+                                                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{w.post_label || w.role}</p>
+                                                                </div>
+                                                                {selectedWorker === w.id && (
+                                                                    <div className="h-5 w-5 rounded-full bg-[#EA1E63] flex items-center justify-center flex-shrink-0">
+                                                                        <span className="text-white text-[10px]">✓</span>
+                                                                    </div>
+                                                                )}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                {/* Transfer button */}
+                                                <button
+                                                    onClick={handleTransfer}
+                                                    disabled={transferring || !selectedWorker}
+                                                    className={`w-full font-black p-5 rounded-full shadow-xl flex items-center justify-center gap-2 transition-all ${selectedWorker ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}`}
+                                                >
+                                                    {transferring
+                                                        ? <Loader2 className="animate-spin" />
+                                                        : <><UserPlus size={18} /> TRANSFER CUSTOMER</>
+                                                    }
+                                                </button>
+
+                                                {/* Skip transfer */}
+                                                <button
+                                                    onClick={() => router.push('/entry')}
+                                                    className="w-full text-gray-400 font-black text-[10px] uppercase tracking-widest py-2"
+                                                >
+                                                    Skip & Go Home
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
-                                ) : (
+                                )}
+
+                                {/* ── INVOICE FORM (shows before invoice sent) ── */}
+                                {!invoiceSent && (
                                     <>
                                         {/* Client Name */}
                                         <input
@@ -313,16 +437,17 @@ function ProcessContent() {
                                             </div>
                                         )}
 
-                                        {/* Slip Upload — hidden for KOKO */}
+                                        {/* Slip Upload — hidden for KOKO, accepts image + PDF */}
                                         {paymentMethod && paymentMethod !== 'KOKO' && (
                                             <label className={`flex flex-col items-center justify-center w-full p-6 rounded-[20px] border-2 border-dashed cursor-pointer transition-all ${slipFile ? 'bg-green-50 border-green-300' : 'bg-white border-pink-200 hover:bg-pink-50'}`}>
                                                 <Upload size={24} className={slipFile ? 'text-green-500' : 'text-[#EA1E63]'} />
-                                                <span className="text-[10px] font-black uppercase tracking-widest mt-2 text-center" style={{ color: slipFile ? '#22c55e' : '#9ca3af' }}>
+                                                <span className={`text-[10px] font-black uppercase tracking-widest mt-2 text-center ${slipFile ? 'text-green-500' : 'text-gray-400'}`}>
                                                     {slipFile ? `✓ ${slipFile.name}` : 'Upload Payment Slip *'}
                                                 </span>
+                                                <span className="text-[9px] text-gray-300 mt-1">PNG, JPG or PDF</span>
                                                 <input
                                                     type="file"
-                                                    accept="image/*"
+                                                    accept="image/png,image/jpeg,image/jpg,application/pdf"
                                                     className="hidden"
                                                     onChange={(e) => setSlipFile(e.target.files?.[0] || null)}
                                                 />
@@ -357,13 +482,11 @@ function ProcessContent() {
                             </>
                         )}
 
-                        {/* Review button — only for non-order steps */}
                         {currentStepId !== 'order' && (
                             <button onClick={() => setShowAction(false)} className="absolute -top-3 -right-3 bg-white p-2 rounded-full border border-gray-100 shadow-md text-gray-400 text-[8px] font-black uppercase">Review</button>
                         )}
                     </div>
 
-                    {/* Confirm button — only for non-order steps */}
                     {currentStepId !== 'order' && (
                         <button onClick={handleStepSubmit} disabled={loading} className="w-full bg-[#EA1E63] text-white font-black p-5 rounded-full shadow-xl flex items-center justify-center gap-2">
                             {loading ? <Loader2 className="animate-spin" /> : 'CONFIRM & SUBMIT'}
