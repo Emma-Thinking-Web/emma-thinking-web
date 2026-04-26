@@ -147,44 +147,40 @@ export default function TopNav({ onTaskSelect }: TopNavProps) {
     return (
         <>
             {/* TOP BAR */}
-            <div className="bg-[#FFE1EC] px-5 pt-5 pb-4 rounded-b-[35px] shadow-sm z-50">
-                {/* Row 1: Logo + Bell + Avatar */}
-                <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                        <Image src="/emma-logo.png" alt="Logo" width={28} height={28} priority />
-                        <span className="text-[#EA1E63] font-black text-lg tracking-tighter">Emma Thinking</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        {/* Bell */}
-                        <button onClick={() => setNotifOpen(true)} className="relative">
-                            <Bell size={22} className="text-gray-700" />
-                            {activeTasks.length > 0 && (
-                                <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#EA1E63] rounded-full text-white text-[8px] font-black flex items-center justify-center">
-                                    {activeTasks.length}
-                                </span>
-                            )}
-                        </button>
-                        {/* Avatar */}
-                        <div className="h-9 w-9 rounded-full overflow-hidden border-2 border-white shadow-sm bg-gray-100 flex-shrink-0">
-                            <img
-                                src={profile?.avatar_url ? `${profile.avatar_url}?t=${timestamp}` : defaultAvatar}
-                                alt="Profile"
-                                className="w-full h-full object-cover"
-                            />
-                        </div>
-                    </div>
+            <div className="bg-[#FFE1EC] p-5 rounded-b-[35px] flex justify-between items-center shadow-sm z-50">
+                {/* Logo */}
+                <div className="flex items-center gap-2">
+                    <Image src="/emma-logo.png" alt="Logo" width={28} height={28} priority />
+                    <span className="text-[#EA1E63] font-black text-lg tracking-tighter">Emma Thinking</span>
                 </div>
 
-                {/* Row 2: Wallet balance */}
-                <div className="mt-4 bg-gradient-to-r from-[#EA1E63] to-[#ff4b8b] rounded-[24px] px-5 py-4 flex items-center justify-between shadow-lg shadow-pink-200">
-                    <div>
-                        <p className="text-white/70 text-[9px] font-black uppercase tracking-widest">My Wallet Balance</p>
-                        <p className="text-white text-xl font-black tracking-tighter italic mt-0.5">
+                {/* Right side: wallet pill + bell + avatar */}
+                <div className="flex items-center gap-3">
+                    {/* Wallet pill */}
+                    <div className="bg-white/60 px-3 py-1.5 rounded-2xl flex items-center gap-1.5 border border-pink-100 shadow-sm">
+                        <Wallet size={12} className="text-[#EA1E63]" />
+                        <span className="text-[10px] font-black text-gray-800 italic">
                             LKR {profile?.total_commission?.toLocaleString() || '0.00'}
-                        </p>
+                        </span>
                     </div>
-                    <div className="bg-white/10 p-3 rounded-2xl">
-                        <Wallet size={22} className="text-white" />
+
+                    {/* Bell */}
+                    <button onClick={() => setNotifOpen(true)} className="relative">
+                        <Bell size={22} className="text-gray-700" />
+                        {activeTasks.length > 0 && (
+                            <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#EA1E63] rounded-full text-white text-[8px] font-black flex items-center justify-center">
+                                {activeTasks.length}
+                            </span>
+                        )}
+                    </button>
+
+                    {/* Avatar */}
+                    <div className="h-9 w-9 rounded-full overflow-hidden border-2 border-white shadow-sm bg-gray-100 flex-shrink-0">
+                        <img
+                            src={profile?.avatar_url ? `${profile.avatar_url}?t=${timestamp}` : defaultAvatar}
+                            alt="Profile"
+                            className="w-full h-full object-cover"
+                        />
                     </div>
                 </div>
             </div>
