@@ -785,7 +785,7 @@ export default function AdminDashboard() {
                                             </td>
                                             <td className="p-8 text-center">
                                                 <button
-                                                    onClick={() => openActionsModal(w)}
+                                                    onClick={() => router.push(`/admin/workers/${w.id}`)}
                                                     className="flex items-center gap-2 mx-auto bg-[#EA1E63] text-white px-5 py-2 rounded-xl text-[10px] uppercase font-black shadow-sm shadow-pink-100 hover:opacity-90 transition-all"
                                                 >
                                                     <Zap size={12} /> Actions
