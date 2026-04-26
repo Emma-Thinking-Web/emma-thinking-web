@@ -22,14 +22,15 @@ export default function InvoicePage() {
                 .eq('invoice_number', invoiceNumber)
                 .single()
 
-            if (error || !data) {
-                setNotFound(true)
-                return
-            }
+            if (error || !data) { setNotFound(true); return }
             setOrder(data)
         }
         fetchOrder()
     }, [invoiceNumber])
+
+    const handleDownload = async () => {
+        window.print()
+    }
 
     if (notFound) return (
         <div style={{ textAlign: 'center', padding: '60px', fontFamily: 'Arial' }}>
@@ -46,10 +47,12 @@ export default function InvoicePage() {
     const today = new Date(order.created_at).toLocaleDateString('en-GB', {
         day: '2-digit', month: 'long', year: 'numeric'
     })
-    const dash = '-'
+
+    // Description: just package name + discount if any
     const descriptionLine = order.discount_percent > 0
-        ? order.package_name + ' ' + dash + ' ' + order.discount_percent + '% Discount'
-        : order.package_name + ' ' + dash + ' Profile Publishing & Ad Boost'
+        ? order.package_name + ' ' + order.discount_percent + '% Discount'
+        : order.package_name
+
     const finalAmountFormatted = Number(order.final_amount).toLocaleString()
     const kokoLine = order.koko_id ? ' (ID: ' + order.koko_id + ')' : ''
 
@@ -57,41 +60,174 @@ export default function InvoicePage() {
         <>
             <style>{`
                 * { margin: 0; padding: 0; box-sizing: border-box; }
-                body { font-family: Arial, sans-serif; font-size: 13px; color: #222; background: #f5f5f5; }
-                .download-bar { background: #EA1E63; padding: 14px; text-align: center; position: sticky; top: 0; z-index: 100; }
-                .download-btn { background: white; color: #EA1E63; border: none; border-radius: 25px; padding: 10px 28px; font-size: 13px; font-weight: 900; cursor: pointer; }
-                .badge { display: inline-block; background: rgba(255,255,255,0.2); color: white; border-radius: 20px; padding: 3px 12px; font-size: 10px; font-weight: 900; margin-left: 10px; vertical-align: middle; }
-                .page { background: #fff; max-width: 750px; margin: 30px auto; padding: 50px; border-radius: 8px; box-shadow: 0 2px 20px rgba(0,0,0,0.08); }
-                .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #222; padding-bottom: 16px; margin-bottom: 20px; }
-                .company-name { font-size: 18px; font-weight: 900; }
-                .company-address { font-size: 11px; color: #555; margin-top: 4px; }
-                .invoice-title { font-size: 32px; font-weight: 900; color: #222; }
-                .mobile-row { margin-bottom: 16px; font-size: 12px; border-bottom: 1px solid #ccc; padding-bottom: 12px; }
-                .two-col { display: flex; justify-content: space-between; margin-bottom: 20px; gap: 20px; }
-                .customer-block label { font-weight: 700; font-size: 14px; margin-bottom: 6px; display: block; }
-                .customer-block p { font-size: 12px; margin: 3px 0; }
-                .invoice-meta { text-align: right; font-size: 12px; min-width: 180px; }
+                html, body { width: 100%; }
+                body { font-family: Arial, sans-serif; font-size: 13px; color: #222; background: #f0f0f0; }
+
+                /* Download bar - hidden on print */
+                .download-bar {
+                    background: #EA1E63;
+                    padding: 14px 20px;
+                    text-align: center;
+                    position: sticky;
+                    top: 0;
+                    z-index: 100;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 12px;
+                }
+                .download-btn {
+                    background: white;
+                    color: #EA1E63;
+                    border: none;
+                    border-radius: 25px;
+                    padding: 10px 28px;
+                    font-size: 13px;
+                    font-weight: 900;
+                    cursor: pointer;
+                    letter-spacing: 0.3px;
+                }
+                .download-btn:hover { background: #fff0f5; }
+                .hint {
+                    color: rgba(255,255,255,0.85);
+                    font-size: 11px;
+                    font-weight: 600;
+                }
+
+                /* Invoice page wrapper */
+                .page-wrap {
+                    max-width: 794px;
+                    margin: 30px auto;
+                    background: #fff;
+                    padding: 60px 60px 50px 60px;
+                    box-shadow: 0 4px 30px rgba(0,0,0,0.10);
+                    border-radius: 4px;
+                }
+
+                /* Header */
+                .header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-start;
+                    border-bottom: 2px solid #222;
+                    padding-bottom: 18px;
+                    margin-bottom: 18px;
+                }
+                .company-name { font-size: 17px; font-weight: 900; letter-spacing: -0.3px; }
+                .company-address { font-size: 11px; color: #555; margin-top: 3px; }
+                .invoice-title { font-size: 36px; font-weight: 900; color: #222; }
+
+                /* Mobile line */
+                .mobile-row {
+                    font-size: 12px;
+                    border-bottom: 1px solid #ccc;
+                    padding-bottom: 14px;
+                    margin-bottom: 18px;
+                }
+
+                /* Two column info */
+                .two-col {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-start;
+                    margin-bottom: 24px;
+                    gap: 20px;
+                }
+                .customer-block { flex: 1; }
+                .customer-block .section-label {
+                    font-weight: 900;
+                    font-size: 14px;
+                    margin-bottom: 8px;
+                    display: block;
+                }
+                .customer-block p { font-size: 12px; margin: 4px 0; }
+                .invoiced-by-left { font-size: 13px; font-weight: 900; margin-top: 20px; }
+
+                .invoice-meta { text-align: right; font-size: 12px; }
                 .invoice-meta p { margin: 3px 0; }
-                table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-                th { font-weight: 900; font-size: 13px; padding: 12px 8px; border-top: 2px solid #222; border-bottom: 1px solid #ccc; text-align: left; }
-                td { padding: 16px 8px; font-size: 12px; border-bottom: 1px solid #eee; }
-                .total-row { border-top: 2px solid #222; padding-top: 12px; text-align: right; font-size: 15px; font-weight: 900; margin: 8px 0 24px 0; }
-                .terms { font-size: 10.5px; color: #333; line-height: 1.7; margin-top: 20px; border-top: 1px solid #ccc; padding-top: 16px; }
-                .terms h4 { font-size: 13px; font-weight: 900; margin-bottom: 8px; }
-                .terms p { margin-bottom: 4px; }
-                .thank-you { text-align: center; margin-top: 30px; font-size: 15px; font-weight: 900; color: #EA1E63; padding: 20px; }
-                @media print { .download-bar { display: none; } body { background: #fff; } .page { box-shadow: none; margin: 0; border-radius: 0; padding: 30px; } }
-                @media (max-width: 600px) { .page { margin: 0; border-radius: 0; padding: 20px; box-shadow: none; } .two-col { flex-direction: column; } .invoice-meta { text-align: left; } }
+                .invoice-meta .invoiced-by-right { margin-top: 16px; }
+
+                /* Table */
+                table { width: 100%; border-collapse: collapse; margin: 4px 0 0 0; }
+                th {
+                    font-weight: 900;
+                    font-size: 13px;
+                    padding: 12px 10px;
+                    border-top: 2px solid #222;
+                    border-bottom: 1px solid #bbb;
+                    text-align: left;
+                    background: #fff;
+                }
+                th:last-child { text-align: right; }
+                td { padding: 18px 10px; font-size: 12px; border-bottom: 1px solid #eee; }
+                td:last-child { text-align: right; }
+
+                /* Total */
+                .total-row {
+                    border-top: 2px solid #222;
+                    padding-top: 14px;
+                    text-align: right;
+                    font-size: 15px;
+                    font-weight: 900;
+                    margin: 0 0 28px 0;
+                }
+
+                /* Terms */
+                .terms {
+                    font-size: 10px;
+                    color: #333;
+                    line-height: 1.75;
+                    margin-top: 20px;
+                    border-top: 1px solid #ccc;
+                    padding-top: 16px;
+                }
+                .terms h4 { font-size: 12px; font-weight: 900; margin-bottom: 6px; }
+                .terms p { margin-bottom: 2px; }
+
+                /* Thank you */
+                .thank-you {
+                    text-align: center;
+                    margin-top: 32px;
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: #222;
+                }
+
+                /* PRINT STYLES */
+                @media print {
+                    body { background: #fff; }
+                    .download-bar { display: none !important; }
+                    .page-wrap {
+                        margin: 0;
+                        padding: 40px 50px;
+                        box-shadow: none;
+                        border-radius: 0;
+                        max-width: 100%;
+                    }
+                }
+
+                /* MOBILE */
+                @media (max-width: 640px) {
+                    .page-wrap { margin: 0; padding: 24px 20px; box-shadow: none; border-radius: 0; }
+                    .two-col { flex-direction: column; gap: 16px; }
+                    .invoice-meta { text-align: left; }
+                    .invoice-title { font-size: 26px; }
+                    .download-bar { flex-direction: column; gap: 6px; }
+                }
             `}</style>
 
+            {/* Sticky download bar */}
             <div className="download-bar">
-                <button className="download-btn" onClick={() => window.print()}>
-                    Download / Print Invoice
+                <button className="download-btn" onClick={handleDownload}>
+                    Download / Print as PDF
                 </button>
-                <span className="badge">Emma Thinking</span>
+                <span className="hint">Select "Save as PDF" in print dialog</span>
             </div>
 
-            <div className="page">
+            {/* Invoice */}
+            <div className="page-wrap">
+
+                {/* Header */}
                 <div className="header">
                     <div>
                         <div className="company-name">EMMA THINKING (PVT) LTD</div>
@@ -100,44 +236,54 @@ export default function InvoicePage() {
                     <div className="invoice-title">Invoice</div>
                 </div>
 
-                <div className="mobile-row"><strong>Mobile:</strong> 077 734 8733</div>
+                {/* Mobile */}
+                <div className="mobile-row">
+                    <strong>Mobile:</strong> 077 734 8733
+                </div>
 
+                {/* Two col */}
                 <div className="two-col">
                     <div className="customer-block">
-                        <label>Customer</label>
+                        <span className="section-label">Customer</span>
                         <p><strong>Name of Customer :</strong> {order.client_name}</p>
                         <p><strong>Mobile Number &nbsp;&nbsp;&nbsp;:</strong> {order.client_number}</p>
-                        <p><strong>Payment Method :</strong> {order.payment_method}{kokoLine}</p>
-                        <div style={{ fontSize: '12px', marginTop: '10px' }}><br /><strong>Invoiced by</strong></div>
+                        <p><strong>Payment Method &nbsp;:</strong> {order.payment_method}{kokoLine}</p>
+                        <div className="invoiced-by-left">Invoiced by</div>
                     </div>
                     <div className="invoice-meta">
                         <p>Invoice No: <strong>{order.invoice_number}</strong></p>
                         <p>Date: &nbsp;<strong>{today}</strong></p>
-                        <br />
-                        <p>Invoiced by</p>
-                        <p>Emma Thinking (Pvt) Ltd</p>
+                        <div className="invoiced-by-right">
+                            <p>Invoiced by</p>
+                            <p>Emma Thinking (Pvt) Ltd</p>
+                        </div>
                     </div>
                 </div>
 
+                {/* Table */}
                 <table>
                     <thead>
                         <tr>
                             <th>Date</th>
                             <th>Description</th>
-                            <th style={{ textAlign: 'right' }}>Subtotal</th>
+                            <th>Subtotal</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
                             <td>{today}</td>
                             <td>{descriptionLine}</td>
-                            <td style={{ textAlign: 'right' }}>LKR {finalAmountFormatted}.00</td>
+                            <td>LKR {finalAmountFormatted}.00</td>
                         </tr>
                     </tbody>
                 </table>
 
-                <div className="total-row">Total: LKR {finalAmountFormatted}.00</div>
+                {/* Total */}
+                <div className="total-row">
+                    Total: LKR {finalAmountFormatted}.00
+                </div>
 
+                {/* Terms */}
                 <div className="terms">
                     <h4>Terms &amp; Conditions</h4>
                     <p>1. Emma Thinking (Pvt) Ltd is a legally registered Sri Lankan matchmaking service provider operating online via Facebook, Instagram, WhatsApp, and other digital platforms.</p>
@@ -151,7 +297,9 @@ export default function InvoicePage() {
                     <p>9. By paying, you confirm that you accept all terms listed above, effective as of April 2025. Full policy is available on request or via our official Facebook page.</p>
                 </div>
 
+                {/* Thank you - no signature */}
                 <div className="thank-you">Thank You</div>
+
             </div>
         </>
     )
