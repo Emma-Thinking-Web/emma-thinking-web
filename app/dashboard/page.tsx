@@ -336,6 +336,7 @@ export default function Dashboard() {
     const [tasks, setTasks] = useState<Task[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+    const [notifOpen, setNotifOpen] = useState(false)
 
     useEffect(() => {
         const init = async () => {
@@ -352,7 +353,6 @@ export default function Dashboard() {
                 .eq('id', user.id)
                 .single()
             if (profileData) setProfile(profileData)
-            // Grab location on login
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(async (pos) => {
                     await supabase
@@ -378,7 +378,6 @@ export default function Dashboard() {
     }, [router])
 
     const handleMarkDone = async (taskId: string) => {
-        // Get task details for SMS
         const task = tasks.find(t => t.id === taskId)
 
         const { error } = await supabase
@@ -389,7 +388,6 @@ export default function Dashboard() {
         if (!error) {
             setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: 'done' } : t)))
 
-            // Notify via SMS (worker + admin)
             if (task && profile) {
                 try {
                     await fetch('/api/notify-complete', {
@@ -427,15 +425,14 @@ export default function Dashboard() {
                     <span className="text-[#EA1E63] font-black text-lg tracking-tighter">Emma Thinking</span>
                 </div>
                 <div className="flex items-center gap-3">
-                    {activeTasks.length > 0 && (
-                        <div className="relative">
-                            <Bell size={22} className="text-gray-700" />
+                    <button onClick={() => setNotifOpen(true)} className="relative">
+                        <Bell size={22} className="text-gray-700" />
+                        {activeTasks.length > 0 && (
                             <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#EA1E63] rounded-full text-white text-[8px] font-black flex items-center justify-center">
                                 {activeTasks.length}
                             </span>
-                        </div>
-                    )}
-                    {activeTasks.length === 0 && <Bell size={22} className="text-gray-700" />}
+                        )}
+                    </button>
                     <div className="h-9 w-9 bg-white rounded-full flex items-center justify-center text-[#EA1E63] font-black border border-pink-100 shadow-sm uppercase text-xs">
                         {profile?.full_name?.substring(0, 2) || 'US'}
                     </div>
@@ -455,40 +452,18 @@ export default function Dashboard() {
                     </div>
                 </Link>
 
-                {/* Active Tasks */}
-                <div className="space-y-3">
-                    <div className="flex items-center justify-between ml-1">
-                        <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                            My Tasks
-                        </h3>
-                        <span className="text-[9px] font-black text-[#EA1E63] bg-pink-50 px-3 py-1 rounded-full">
-                            {activeTasks.length} active
-                        </span>
-                    </div>
-
-                    {activeTasks.length === 0 ? (
-                        <div className="bg-gray-50 rounded-[24px] p-8 text-center">
-                            <CheckCircle2 size={32} className="text-green-300 mx-auto mb-2" />
-                            <p className="text-xs font-black text-gray-400">All tasks completed!</p>
-                        </div>
-                    ) : (
-                        activeTasks.map((task) => (
-                            <TaskCard key={task.id} task={task} onClick={() => setSelectedTask(task)} />
-                        ))
-                    )}
+                {/* Empty state */}
+                <div className="bg-gray-50 rounded-[24px] p-10 text-center space-y-2">
+                    <Bell size={28} className="text-pink-200 mx-auto" />
+                    <p className="text-xs font-black text-gray-400">
+                        {activeTasks.length > 0
+                            ? `You have ${activeTasks.length} active task${activeTasks.length !== 1 ? 's' : ''}`
+                            : 'No active tasks'}
+                    </p>
+                    <p className="text-[9px] text-gray-300 font-black uppercase tracking-widest">
+                        Tap the bell to view
+                    </p>
                 </div>
-
-                {/* Completed Tasks */}
-                {doneTasks.length > 0 && (
-                    <div className="space-y-3">
-                        <h3 className="text-[10px] font-black text-gray-300 uppercase tracking-widest ml-1">
-                            Completed
-                        </h3>
-                        {doneTasks.map((task) => (
-                            <TaskCard key={task.id} task={task} onClick={() => setSelectedTask(task)} />
-                        ))}
-                    </div>
-                )}
 
                 <div className="py-2 text-center">
                     <p className="text-[9px] text-gray-200 font-black uppercase tracking-[0.3em] italic">
@@ -496,6 +471,80 @@ export default function Dashboard() {
                     </p>
                 </div>
             </div>
+
+            {/* NOTIFICATION PANEL */}
+            {notifOpen && (
+                <div
+                    className="fixed inset-0 z-[150] flex items-end justify-center bg-black/40 backdrop-blur-sm px-4 pb-6"
+                    onClick={() => setNotifOpen(false)}
+                >
+                    <div
+                        className="bg-white w-full max-w-md rounded-[32px] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-300"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Panel header */}
+                        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-50">
+                            <div>
+                                <h2 className="text-sm font-black text-gray-800">My Tasks</h2>
+                                <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest mt-0.5">
+                                    {activeTasks.length} active · {doneTasks.length} completed
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setNotifOpen(false)}
+                                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+
+                        {/* Task list */}
+                        <div className="overflow-y-auto max-h-[70vh] px-4 py-4 space-y-3">
+                            {activeTasks.length === 0 && doneTasks.length === 0 ? (
+                                <div className="py-8 text-center">
+                                    <CheckCircle2 size={32} className="text-green-300 mx-auto mb-2" />
+                                    <p className="text-xs font-black text-gray-400">All tasks completed!</p>
+                                </div>
+                            ) : (
+                                <>
+                                    {activeTasks.map((task) => (
+                                        <TaskCard
+                                            key={task.id}
+                                            task={task}
+                                            onClick={() => {
+                                                setNotifOpen(false)
+                                                setSelectedTask(task)
+                                            }}
+                                        />
+                                    ))}
+                                    {doneTasks.length > 0 && (
+                                        <>
+                                            <p className="text-[10px] font-black text-gray-300 uppercase tracking-widest ml-1 pt-2">
+                                                Completed
+                                            </p>
+                                            {doneTasks.map((task) => (
+                                                <TaskCard
+                                                    key={task.id}
+                                                    task={task}
+                                                    onClick={() => {
+                                                        setNotifOpen(false)
+                                                        setSelectedTask(task)
+                                                    }}
+                                                />
+                                            ))}
+                                        </>
+                                    )}
+                                </>
+                            )}
+                            <div className="py-2 text-center">
+                                <p className="text-[9px] text-gray-200 font-black uppercase tracking-[0.3em] italic">
+                                    Made By Kossa • v1.0.3
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* TASK DETAIL MODAL */}
             {selectedTask && (
