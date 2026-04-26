@@ -4,7 +4,9 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
     Users, UserPlus, Trash2, Loader2, ShieldCheck, LogOut,
-    Briefcase, Send, ClipboardList, Plus, Calendar, X, CheckCircle2, MapPin
+    Briefcase, Send, ClipboardList, Plus, Calendar, X, CheckCircle2, MapPin,
+    History, Phone, MessageCircle, UserCheck, ChevronRight, Receipt,
+    Zap, Edit3, GripVertical, Save
 } from 'lucide-react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
@@ -22,6 +24,7 @@ export default function AdminDashboard() {
         last_lat?: number
         last_lng?: number
         last_seen?: string
+        custom_actions?: CustomAction[]
     }
 
     interface Task {
@@ -39,14 +42,47 @@ export default function AdminDashboard() {
         created_at: string
     }
 
+    interface LeadHistory {
+        id: string
+        worker_id: string
+        phone_number: string
+        last_step: string
+        notes: string
+        created_at: string
+        transferred_to: string
+        transferred_to_name?: string
+        payment_amount?: number
+        commission_earned?: number
+        package_name?: string
+    }
+
+    interface CustomerGroup {
+        phone_number: string
+        history: LeadHistory[]
+        workers: string[]
+        hasOrder: boolean
+        totalCommission: number
+        lastActivity: string
+    }
+
+    interface CustomAction {
+        id: string
+        label: string
+        description: string
+        color: string
+    }
+
     const [workers, setWorkers] = useState<Worker[]>([])
     const [packages, setPackages] = useState<any[]>([])
     const [tasks, setTasks] = useState<Task[]>([])
+    const [allHistory, setAllHistory] = useState<LeadHistory[]>([])
+    const [customerGroups, setCustomerGroups] = useState<CustomerGroup[]>([])
     const [activeTab, setActiveTab] = useState('workers')
     const [loading, setLoading] = useState(false)
     const [updating, setUpdating] = useState(false)
     const [sending, setSending] = useState(false)
     const [taskLoading, setTaskLoading] = useState(false)
+    const [historyLoading, setHistoryLoading] = useState(false)
     const router = useRouter()
 
     // Location States
@@ -61,6 +97,14 @@ export default function AdminDashboard() {
     const [tempTargets, setTempTargets] = useState<any>({ p1: 10, p2: 10, p3: 10, p4: 10, p5: 10, p6: 10 })
     const [tempCommissions, setTempCommissions] = useState<any>({ p1: 10, p2: 8, p3: 5, p4: 10, p5: 8, p6: 5 })
 
+    // Custom Actions Modal
+    const [actionsWorker, setActionsWorker] = useState<Worker | null>(null)
+    const [tempActions, setTempActions] = useState<CustomAction[]>([])
+    const [actionsUpdating, setActionsUpdating] = useState(false)
+
+    // History Modal
+    const [selectedHistoryCustomer, setSelectedHistoryCustomer] = useState<CustomerGroup | null>(null)
+
     // Task Form States
     const [taskForm, setTaskForm] = useState({
         worker_id: '',
@@ -70,6 +114,10 @@ export default function AdminDashboard() {
         deadline: '',
     })
     const [taskFormOpen, setTaskFormOpen] = useState(false)
+
+    const actionColors = [
+        '#EA1E63', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#EF4444'
+    ]
 
     const accessOptions = [
         { id: 'dashboard', label: 'Dashboard' },
@@ -103,11 +151,61 @@ export default function AdminDashboard() {
         if (data) setTasks(data as Task[])
     }
 
+    const fetchHistory = async () => {
+        setHistoryLoading(true)
+        const { data } = await supabase
+            .from('leads_history')
+            .select('*')
+            .order('created_at', { ascending: false })
+
+        if (data) {
+            setAllHistory(data)
+            // Group by phone number
+            const groups: Record<string, CustomerGroup> = {}
+            data.forEach((item: LeadHistory) => {
+                if (!groups[item.phone_number]) {
+                    groups[item.phone_number] = {
+                        phone_number: item.phone_number,
+                        history: [],
+                        workers: [],
+                        hasOrder: false,
+                        totalCommission: 0,
+                        lastActivity: item.created_at,
+                    }
+                }
+                groups[item.phone_number].history.push(item)
+                // Collect unique worker names
+                const workerName = workers.find(w => w.id === item.worker_id)?.full_name
+                if (workerName && !groups[item.phone_number].workers.includes(workerName)) {
+                    groups[item.phone_number].workers.push(workerName)
+                }
+                if (item.last_step === 'order') {
+                    groups[item.phone_number].hasOrder = true
+                    groups[item.phone_number].totalCommission += Number(item.commission_earned || 0)
+                }
+            })
+            // Sort history inside each group ascending
+            Object.values(groups).forEach(g => {
+                g.history.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+            })
+            setCustomerGroups(Object.values(groups).sort((a, b) =>
+                new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime()
+            ))
+        }
+        setHistoryLoading(false)
+    }
+
     useEffect(() => {
         fetchWorkers()
         fetchPackages()
         fetchTasks()
     }, [])
+
+    useEffect(() => {
+        if (activeTab === 'history' && workers.length > 0) {
+            fetchHistory()
+        }
+    }, [activeTab, workers])
 
     const handleAccessChange = (id: string) => {
         setFormData(prev => ({
@@ -163,6 +261,7 @@ export default function AdminDashboard() {
                     achievements: { p1: 0, p2: 0, p3: 0, p4: 0, p5: 0, p6: 0 },
                     total_commission: 0,
                     warnings: 0,
+                    custom_actions: [],
                     created_at: new Date().toISOString()
                 }])
                 if (profileError) throw profileError
@@ -192,13 +291,53 @@ export default function AdminDashboard() {
         setUpdating(false)
     }
 
+    // ── CUSTOM ACTIONS ──────────────────────────────────────────
+    const openActionsModal = (worker: Worker) => {
+        setActionsWorker(worker)
+        setTempActions(worker.custom_actions && worker.custom_actions.length > 0
+            ? [...worker.custom_actions]
+            : []
+        )
+    }
+
+    const addNewAction = () => {
+        const newAction: CustomAction = {
+            id: Date.now().toString(),
+            label: '',
+            description: '',
+            color: actionColors[tempActions.length % actionColors.length]
+        }
+        setTempActions(prev => [...prev, newAction])
+    }
+
+    const updateAction = (id: string, field: keyof CustomAction, value: string) => {
+        setTempActions(prev => prev.map(a => a.id === id ? { ...a, [field]: value } : a))
+    }
+
+    const removeAction = (id: string) => {
+        setTempActions(prev => prev.filter(a => a.id !== id))
+    }
+
+    const saveCustomActions = async () => {
+        if (!actionsWorker) return
+        setActionsUpdating(true)
+        const { error } = await supabase
+            .from('profiles')
+            .update({ custom_actions: tempActions })
+            .eq('id', actionsWorker.id)
+        if (!error) {
+            alert('Actions saved! ✅')
+            setActionsWorker(null)
+            fetchWorkers()
+        } else {
+            alert('Error: ' + error.message)
+        }
+        setActionsUpdating(false)
+    }
+
     // ── TASK FUNCTIONS ──────────────────────────────────────────
     const handleWorkerSelect = (workerId: string) => {
-        setTaskForm(prev => ({
-            ...prev,
-            worker_id: workerId,
-            worker_phone: '',
-        }))
+        setTaskForm(prev => ({ ...prev, worker_id: workerId, worker_phone: '' }))
     }
 
     const handleAddTask = async (e: React.FormEvent) => {
@@ -276,7 +415,23 @@ export default function AdminDashboard() {
         return `${diffDays}d ago`
     }
 
-    const workersWithLocation = workers.filter(w => w.last_lat && w.last_lng)
+    const stepColor = (step: string) => {
+        if (step === 'messages') return 'bg-blue-50 text-blue-500'
+        if (step === 'calls') return 'bg-purple-50 text-purple-500'
+        if (step === 'feedback') return 'bg-amber-50 text-amber-500'
+        if (step === 'order') return 'bg-green-50 text-green-600'
+        if (step === 'transfer') return 'bg-pink-50 text-pink-500'
+        return 'bg-gray-50 text-gray-400'
+    }
+
+    const StepIcon = ({ step }: { step: string }) => {
+        if (step === 'messages') return <MessageCircle size={12} className="text-blue-400" />
+        if (step === 'calls') return <Phone size={12} className="text-purple-400" />
+        if (step === 'feedback') return <UserCheck size={12} className="text-amber-400" />
+        if (step === 'order') return <Receipt size={12} className="text-green-500" />
+        if (step === 'transfer') return <ChevronRight size={12} className="text-pink-400" />
+        return null
+    }
 
     return (
         <div className="fixed inset-0 w-screen h-screen bg-gray-50 flex font-sans text-gray-900 overflow-hidden">
@@ -291,13 +446,14 @@ export default function AdminDashboard() {
                     {[
                         { id: 'workers', icon: <Users size={18} />, label: 'Workers List' },
                         { id: 'tasks', icon: <ClipboardList size={18} />, label: 'Tasks' },
+                        { id: 'history', icon: <History size={18} />, label: 'Customer History' },
                         { id: 'locations', icon: <MapPin size={18} />, label: 'Locations' },
                         { id: 'customers', icon: <Send size={18} />, label: 'New Customer' },
                         { id: 'add', icon: <UserPlus size={18} />, label: 'Registration' },
                         { id: 'packages', icon: <Briefcase size={18} />, label: 'Packages' },
                     ].map(tab => (
                         <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                            className={`w-full flex items-center gap-4 p-4 rounded-[20px] font-bold ${activeTab === tab.id ? 'bg-[#FFE1EC] text-[#EA1E63]' : 'text-gray-400'}`}>
+                            className={`w-full flex items-center gap-4 p-4 rounded-[20px] font-bold transition-all ${activeTab === tab.id ? 'bg-[#FFE1EC] text-[#EA1E63]' : 'text-gray-400 hover:bg-gray-50'}`}>
                             {tab.icon} {tab.label}
                         </button>
                     ))}
@@ -311,7 +467,7 @@ export default function AdminDashboard() {
             {/* Main Content */}
             <div className="flex-grow flex flex-col overflow-hidden">
                 <header className="bg-white/90 backdrop-blur-md border-b border-gray-100 p-8 flex justify-between items-center z-10">
-                    <h1 className="text-3xl font-black tracking-tighter italic uppercase text-gray-800">{activeTab}</h1>
+                    <h1 className="text-3xl font-black tracking-tighter italic uppercase text-gray-800">{activeTab === 'history' ? 'Customer History' : activeTab}</h1>
                     <div className="flex items-center gap-5 italic font-black text-sm">
                         Dilshan Jayawickrama
                         <div className="h-10 w-10 bg-[#EA1E63] rounded-xl flex items-center justify-center text-white">K</div>
@@ -320,29 +476,127 @@ export default function AdminDashboard() {
 
                 <div className="flex-grow p-12 overflow-y-auto">
 
+                    {/* ── HISTORY TAB ── */}
+                    {activeTab === 'history' && (
+                        <div className="space-y-6 max-w-6xl mx-auto">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-xl font-black text-gray-800 italic tracking-tighter">All Customers</h2>
+                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
+                                        {customerGroups.length} unique customers
+                                    </p>
+                                </div>
+                                <div className="flex gap-3">
+                                    <span className="text-[9px] font-black text-green-600 bg-green-50 px-4 py-2 rounded-full uppercase tracking-widest">
+                                        {customerGroups.filter(c => c.hasOrder).length} Ordered
+                                    </span>
+                                    <span className="text-[9px] font-black text-[#EA1E63] bg-pink-50 px-4 py-2 rounded-full uppercase tracking-widest">
+                                        LKR {customerGroups.reduce((s, c) => s + c.totalCommission, 0).toLocaleString()} Commission
+                                    </span>
+                                </div>
+                            </div>
+
+                            {historyLoading ? (
+                                <div className="flex items-center justify-center py-24">
+                                    <Loader2 className="animate-spin text-[#EA1E63]" size={32} />
+                                </div>
+                            ) : customerGroups.length === 0 ? (
+                                <div className="bg-white rounded-[40px] p-16 text-center border border-gray-100">
+                                    <History size={40} className="text-gray-200 mx-auto mb-4" />
+                                    <p className="text-sm font-black text-gray-300">No customer history yet.</p>
+                                </div>
+                            ) : (
+                                <div className="bg-white rounded-[40px] shadow-xl border border-gray-100 overflow-hidden">
+                                    <table className="w-full text-left">
+                                        <thead className="bg-gray-50 border-b border-gray-100 font-black uppercase text-[10px] text-gray-400 tracking-widest">
+                                            <tr>
+                                                <th className="p-6">Customer</th>
+                                                <th className="p-6">Steps Done</th>
+                                                <th className="p-6">Workers Involved</th>
+                                                <th className="p-6">Order</th>
+                                                <th className="p-6">Last Activity</th>
+                                                <th className="p-6 text-center">View</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-50 font-bold text-gray-800">
+                                            {customerGroups.map((cg, idx) => {
+                                                const steps = [...new Set(cg.history.map(h => h.last_step))]
+                                                const orderItem = cg.history.find(h => h.last_step === 'order')
+                                                return (
+                                                    <tr key={idx} className="hover:bg-pink-50/10 cursor-pointer" onClick={() => setSelectedHistoryCustomer(cg)}>
+                                                        <td className="p-6">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-9 h-9 bg-pink-50 rounded-xl flex items-center justify-center">
+                                                                    <Phone size={14} className="text-[#EA1E63]" />
+                                                                </div>
+                                                                <div>
+                                                                    <p className="text-xs font-black text-gray-800">{cg.phone_number}</p>
+                                                                    <p className="text-[9px] text-gray-400 font-bold">{cg.history.length} interactions</p>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-6">
+                                                            <div className="flex gap-1.5 flex-wrap">
+                                                                {['messages', 'calls', 'feedback', 'order'].map(s => (
+                                                                    <span key={s} className={`text-[7px] font-black uppercase px-2 py-1 rounded-full ${steps.includes(s) ? stepColor(s) : 'bg-gray-50 text-gray-200'}`}>
+                                                                        {s}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-6">
+                                                            <div className="flex gap-1 flex-wrap max-w-[160px]">
+                                                                {cg.workers.map((w, i) => (
+                                                                    <span key={i} className="text-[8px] font-black bg-gray-50 text-gray-500 px-2 py-1 rounded-lg">{w}</span>
+                                                                ))}
+                                                                {cg.workers.length === 0 && <span className="text-[8px] text-gray-300 font-bold">—</span>}
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-6">
+                                                            {cg.hasOrder ? (
+                                                                <div>
+                                                                    <p className="text-[10px] font-black text-green-600">{orderItem?.package_name || 'Package'}</p>
+                                                                    <p className="text-[9px] text-gray-400 font-bold">LKR {orderItem?.payment_amount?.toLocaleString()}</p>
+                                                                    <p className="text-[8px] text-green-500 font-black">Comm: LKR {cg.totalCommission.toLocaleString()}</p>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-[9px] text-gray-300 font-black">No order</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-6">
+                                                            <p className="text-[9px] font-bold text-gray-500">
+                                                                {new Date(cg.lastActivity).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                            </p>
+                                                            <p className="text-[8px] text-gray-300 font-bold">
+                                                                {new Date(cg.lastActivity).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </p>
+                                                        </td>
+                                                        <td className="p-6 text-center">
+                                                            <ChevronRight size={16} className="text-gray-300 mx-auto" />
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* ── LOCATIONS TAB ── */}
                     {activeTab === 'locations' && (
                         <div className="space-y-6 max-w-6xl mx-auto">
                             <div>
                                 <h2 className="text-xl font-black text-gray-800 italic tracking-tighter">Worker Locations</h2>
-                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
-                                    Last seen when they opened the app
-                                </p>
+                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Last seen when they opened the app</p>
                             </div>
-
-                            {/* Worker Location Cards */}
                             <div className="grid grid-cols-3 gap-5">
                                 {workers.map((w) => {
                                     const hasLocation = w.last_lat && w.last_lng
                                     return (
-                                        <button
-                                            key={w.id}
-                                            onClick={() => hasLocation ? setSelectedWorkerLocation(w) : null}
-                                            className={`bg-white rounded-[28px] p-6 border text-left transition-all space-y-4 ${hasLocation
-                                                ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-pink-100 cursor-pointer'
-                                                : 'border-gray-50 opacity-50 cursor-not-allowed'
-                                                }`}
-                                        >
+                                        <button key={w.id} onClick={() => hasLocation ? setSelectedWorkerLocation(w) : null}
+                                            className={`bg-white rounded-[28px] p-6 border text-left transition-all space-y-4 ${hasLocation ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-pink-100 cursor-pointer' : 'border-gray-50 opacity-50 cursor-not-allowed'}`}>
                                             <div className="flex items-center justify-between">
                                                 <div className="flex items-center gap-3">
                                                     <div className="h-10 w-10 bg-[#FFE1EC] rounded-xl flex items-center justify-center text-[#EA1E63] font-black text-sm uppercase">
@@ -355,33 +609,20 @@ export default function AdminDashboard() {
                                                 </div>
                                                 <div className={`w-2.5 h-2.5 rounded-full ${hasLocation ? 'bg-green-400' : 'bg-gray-200'}`} />
                                             </div>
-
                                             {hasLocation ? (
                                                 <div className="space-y-2">
-                                                    {/* Mini map preview */}
                                                     <div className="w-full h-28 rounded-2xl overflow-hidden border border-gray-100">
-                                                        <iframe
-                                                            width="100%"
-                                                            height="100%"
-                                                            style={{ border: 0 }}
-                                                            loading="lazy"
-                                                            src={`https://maps.google.com/maps?q=${w.last_lat},${w.last_lng}&z=14&output=embed`}
-                                                        />
+                                                        <iframe width="100%" height="100%" style={{ border: 0 }} loading="lazy"
+                                                            src={`https://maps.google.com/maps?q=${w.last_lat},${w.last_lng}&z=14&output=embed`} />
                                                     </div>
                                                     <div className="flex items-center justify-between px-1">
                                                         <div className="flex items-center gap-1.5">
                                                             <MapPin size={10} className="text-[#EA1E63]" />
-                                                            <span className="text-[9px] font-black text-gray-500">
-                                                                {w.last_lat?.toFixed(4)}, {w.last_lng?.toFixed(4)}
-                                                            </span>
+                                                            <span className="text-[9px] font-black text-gray-500">{w.last_lat?.toFixed(4)}, {w.last_lng?.toFixed(4)}</span>
                                                         </div>
-                                                        <span className="text-[9px] font-black text-gray-400">
-                                                            {formatLastSeen(w.last_seen)}
-                                                        </span>
+                                                        <span className="text-[9px] font-black text-gray-400">{formatLastSeen(w.last_seen)}</span>
                                                     </div>
-                                                    <p className="text-[8px] text-[#EA1E63] font-black uppercase tracking-widest text-center">
-                                                        Tap to open full map →
-                                                    </p>
+                                                    <p className="text-[8px] text-[#EA1E63] font-black uppercase tracking-widest text-center">Tap to open full map →</p>
                                                 </div>
                                             ) : (
                                                 <div className="w-full h-28 rounded-2xl bg-gray-50 flex flex-col items-center justify-center gap-2">
@@ -393,7 +634,6 @@ export default function AdminDashboard() {
                                     )
                                 })}
                             </div>
-
                             {workers.length === 0 && (
                                 <div className="bg-white rounded-[40px] p-16 text-center border border-gray-100">
                                     <MapPin size={40} className="text-gray-200 mx-auto mb-4" />
@@ -416,7 +656,6 @@ export default function AdminDashboard() {
                                     <Plus size={18} /> Add Task
                                 </button>
                             </div>
-
                             <div className="bg-white rounded-[40px] shadow-xl border border-gray-100 overflow-hidden">
                                 {tasks.length === 0 ? (
                                     <div className="p-16 text-center">
@@ -443,7 +682,6 @@ export default function AdminDashboard() {
                                                 const isUrgent = daysLeft <= 2 && !isDone
                                                 const isOverdue = daysLeft < 0 && !isDone
                                                 const barColor = isOverdue ? '#ef4444' : isUrgent ? '#f97316' : daysLeft <= 5 ? '#f59e0b' : '#EA1E63'
-
                                                 return (
                                                     <tr key={task.id} className="hover:bg-pink-50/10">
                                                         <td className="p-6">
@@ -515,15 +753,52 @@ export default function AdminDashboard() {
                         <div className="bg-white rounded-[40px] shadow-xl border border-gray-100 overflow-hidden">
                             <table className="w-full text-left">
                                 <thead className="bg-gray-50 border-b border-gray-100 font-black uppercase text-[10px] text-gray-400 tracking-widest">
-                                    <tr><th className="p-8">Details</th><th className="p-8">Level</th><th className="p-8 text-center">Manage</th><th className="p-8">Access</th><th className="p-8 text-center">Action</th></tr>
+                                    <tr>
+                                        <th className="p-8">Details</th>
+                                        <th className="p-8">Level</th>
+                                        <th className="p-8 text-center">Targets</th>
+                                        <th className="p-8 text-center">Actions</th>
+                                        <th className="p-8">Access</th>
+                                        <th className="p-8 text-center">Delete</th>
+                                    </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-50 font-bold text-gray-800">
                                     {workers.map((w) => (
                                         <tr key={w.id} className="hover:bg-pink-50/20">
-                                            <td className="p-8"><div>{w.full_name}</div><div className="text-[10px] text-[#EA1E63]">{w.post_label}</div></td>
+                                            <td className="p-8">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="h-10 w-10 bg-[#FFE1EC] rounded-xl flex items-center justify-center text-[#EA1E63] font-black text-sm uppercase">
+                                                        {w.full_name?.substring(0, 2)}
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-black text-gray-800">{w.full_name}</div>
+                                                        <div className="text-[10px] text-[#EA1E63]">{w.post_label}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
                                             <td className="p-8"><span className="bg-gray-100 px-4 py-1 rounded-full text-[10px]">{w.level || 'Silver'}</span></td>
-                                            <td className="p-8 text-center"><button onClick={() => { setEditingWorker(w); setTempTargets(w.targets); setTempCommissions(w.commission_rates); }} className="text-[#EA1E63] border-2 border-pink-50 px-5 py-2 rounded-xl text-[10px] uppercase">Targets</button></td>
-                                            <td className="p-8"><div className="flex gap-1 flex-wrap max-w-[150px]">{w.access_level?.map(a => <span key={a} className="bg-white border text-[8px] p-1 rounded-md">{a}</span>)}</div></td>
+                                            <td className="p-8 text-center">
+                                                <button onClick={() => { setEditingWorker(w); setTempTargets(w.targets); setTempCommissions(w.commission_rates); }}
+                                                    className="text-[#EA1E63] border-2 border-pink-50 px-5 py-2 rounded-xl text-[10px] uppercase hover:bg-pink-50 transition-all">
+                                                    Targets
+                                                </button>
+                                            </td>
+                                            <td className="p-8 text-center">
+                                                <button
+                                                    onClick={() => openActionsModal(w)}
+                                                    className="flex items-center gap-2 mx-auto bg-[#EA1E63] text-white px-5 py-2 rounded-xl text-[10px] uppercase font-black shadow-sm shadow-pink-100 hover:opacity-90 transition-all"
+                                                >
+                                                    <Zap size={12} /> Actions
+                                                </button>
+                                                {w.custom_actions && w.custom_actions.length > 0 && (
+                                                    <p className="text-[8px] text-gray-400 font-bold mt-1">{w.custom_actions.length} set</p>
+                                                )}
+                                            </td>
+                                            <td className="p-8">
+                                                <div className="flex gap-1 flex-wrap max-w-[150px]">
+                                                    {w.access_level?.map(a => <span key={a} className="bg-white border text-[8px] p-1 rounded-md">{a}</span>)}
+                                                </div>
+                                            </td>
                                             <td className="p-8 text-center text-gray-300"><Trash2 size={18} /></td>
                                         </tr>
                                     ))}
@@ -572,10 +847,10 @@ export default function AdminDashboard() {
                     )}
                 </div>
 
-                <footer className="p-8 text-center"><p className="text-[10px] text-gray-300 font-black uppercase tracking-[0.3em] italic">Made By Kossa • Enterprise v2.0.2</p></footer>
+                <footer className="p-8 text-center"><p className="text-[10px] text-gray-300 font-black uppercase tracking-[0.3em] italic">Made By Kossa • Enterprise v2.0.3</p></footer>
             </div>
 
-            {/* Target Modal */}
+            {/* ── TARGET MODAL ── */}
             {editingWorker && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-[100] p-12">
                     <div className="bg-white w-full max-w-5xl rounded-[70px] p-16 shadow-2xl animate-in zoom-in-95 relative">
@@ -602,7 +877,211 @@ export default function AdminDashboard() {
                 </div>
             )}
 
-            {/* Add Task Modal */}
+            {/* ── CUSTOM ACTIONS MODAL ── */}
+            {actionsWorker && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-[100] p-12">
+                    <div className="bg-white w-full max-w-2xl rounded-[60px] p-12 shadow-2xl max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-start mb-8">
+                            <div>
+                                <h2 className="text-3xl font-black italic tracking-tighter text-gray-800">Custom Actions</h2>
+                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
+                                    {actionsWorker.full_name} — buttons shown on their customer view
+                                </p>
+                            </div>
+                            <button onClick={() => setActionsWorker(null)} className="h-12 w-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 hover:text-red-400 flex-shrink-0">
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Explanation */}
+                        <div className="bg-pink-50 rounded-[24px] p-5 mb-6 border border-pink-100">
+                            <p className="text-[9px] font-black text-[#EA1E63] uppercase tracking-widest mb-1">How it works</p>
+                            <p className="text-[10px] font-bold text-gray-600 leading-relaxed">
+                                Each button you add here will appear on <span className="font-black text-gray-800">{actionsWorker.full_name}'s</span> screen
+                                when they tap on an assigned customer. Add the label (button name) and description (what they should do).
+                            </p>
+                        </div>
+
+                        {/* Actions List */}
+                        <div className="space-y-4 mb-6">
+                            {tempActions.length === 0 && (
+                                <div className="bg-gray-50 rounded-[24px] p-8 text-center">
+                                    <Zap size={24} className="text-gray-200 mx-auto mb-2" />
+                                    <p className="text-[10px] font-black text-gray-300 uppercase tracking-widest">No actions yet. Add one below.</p>
+                                </div>
+                            )}
+                            {tempActions.map((action, idx) => (
+                                <div key={action.id} className="bg-gray-50 rounded-[24px] p-5 space-y-3 border border-gray-100">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <GripVertical size={14} className="text-gray-300" />
+                                            <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Button {idx + 1}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {/* Color picker */}
+                                            <div className="flex gap-1">
+                                                {actionColors.map(c => (
+                                                    <button key={c} onClick={() => updateAction(action.id, 'color', c)}
+                                                        className={`w-4 h-4 rounded-full transition-all ${action.color === c ? 'ring-2 ring-offset-1 ring-gray-400 scale-110' : ''}`}
+                                                        style={{ backgroundColor: c }} />
+                                                ))}
+                                            </div>
+                                            <button onClick={() => removeAction(action.id)} className="w-7 h-7 rounded-xl bg-red-50 flex items-center justify-center text-red-300 hover:text-red-500 ml-2">
+                                                <X size={12} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {/* Preview */}
+                                    <div className="flex items-center gap-2">
+                                        <div className="px-4 py-2 rounded-xl text-white text-[10px] font-black" style={{ backgroundColor: action.color }}>
+                                            {action.label || 'Button Label'}
+                                        </div>
+                                        <span className="text-[9px] text-gray-300 font-bold italic">← preview</span>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        value={action.label}
+                                        onChange={(e) => updateAction(action.id, 'label', e.target.value)}
+                                        placeholder="Button label (e.g. Call Done)"
+                                        className="w-full bg-white p-4 rounded-2xl font-black text-xs text-gray-700 outline-none border-2 border-transparent focus:border-pink-100"
+                                    />
+                                    <textarea
+                                        rows={2}
+                                        value={action.description}
+                                        onChange={(e) => updateAction(action.id, 'description', e.target.value)}
+                                        placeholder="Description — what should the worker do when they tap this? (e.g. Call the customer and confirm their details)"
+                                        className="w-full bg-white p-4 rounded-2xl font-bold text-xs text-gray-600 outline-none border-2 border-transparent focus:border-pink-100 resize-none leading-relaxed"
+                                    />
+                                </div>
+                            ))}
+                        </div>
+
+                        <button onClick={addNewAction}
+                            className="w-full border-2 border-dashed border-gray-200 text-gray-400 font-black text-[10px] uppercase tracking-widest py-5 rounded-[24px] hover:border-pink-200 hover:text-[#EA1E63] transition-all flex items-center justify-center gap-2 mb-6">
+                            <Plus size={14} /> Add Button
+                        </button>
+
+                        <button onClick={saveCustomActions} disabled={actionsUpdating}
+                            className="w-full bg-[#EA1E63] text-white font-black p-6 rounded-[30px] shadow-xl flex items-center justify-center gap-3 text-base">
+                            {actionsUpdating ? <Loader2 className="animate-spin" size={18} /> : <><Save size={18} /> SAVE ACTIONS</>}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* ── CUSTOMER HISTORY DETAIL MODAL ── */}
+            {selectedHistoryCustomer && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-[100] p-12"
+                    onClick={() => setSelectedHistoryCustomer(null)}>
+                    <div className="bg-white w-full max-w-2xl rounded-[50px] shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
+                        onClick={e => e.stopPropagation()}>
+                        {/* Header */}
+                        <div className="bg-[#FFE1EC] px-8 pt-8 pb-6">
+                            <div className="flex items-start justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm">
+                                        <Phone size={20} className="text-[#EA1E63]" />
+                                    </div>
+                                    <div>
+                                        <p className="text-base font-black text-gray-800">{selectedHistoryCustomer.phone_number}</p>
+                                        <p className="text-[9px] text-gray-500 font-black uppercase tracking-widest mt-0.5">
+                                            {selectedHistoryCustomer.history.length} interactions
+                                        </p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setSelectedHistoryCustomer(null)}
+                                    className="w-8 h-8 rounded-full bg-white/80 flex items-center justify-center text-gray-400">
+                                    <X size={14} />
+                                </button>
+                            </div>
+                            {/* Step pills */}
+                            <div className="flex gap-2 mt-4 flex-wrap">
+                                {['messages', 'calls', 'feedback', 'order'].map(step => {
+                                    const done = selectedHistoryCustomer.history.some(h => h.last_step === step)
+                                    return (
+                                        <span key={step} className={`text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-full ${done ? stepColor(step) : 'bg-white/50 text-gray-300'}`}>
+                                            {step}
+                                        </span>
+                                    )
+                                })}
+                            </div>
+                            {/* Workers involved */}
+                            {selectedHistoryCustomer.workers.length > 0 && (
+                                <div className="flex gap-2 mt-3 flex-wrap">
+                                    {selectedHistoryCustomer.workers.map((w, i) => (
+                                        <span key={i} className="text-[8px] font-black bg-white text-gray-500 px-3 py-1 rounded-full shadow-sm">
+                                            👤 {w}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Timeline */}
+                        <div className="overflow-y-auto flex-grow px-8 py-6">
+                            {selectedHistoryCustomer.history.find(h => h.last_step === 'order') && (
+                                <div className="bg-green-50 border border-green-100 rounded-[20px] p-5 mb-5">
+                                    <p className="text-[9px] font-black text-green-600 uppercase tracking-widest mb-2">Order</p>
+                                    {(() => {
+                                        const o = selectedHistoryCustomer.history.find(h => h.last_step === 'order')!
+                                        return (
+                                            <>
+                                                <p className="text-sm font-black text-gray-800">{o.package_name || 'Package'}</p>
+                                                <div className="flex justify-between mt-2">
+                                                    <span className="text-[9px] font-bold text-gray-500">Amount</span>
+                                                    <span className="text-sm font-black text-green-600">LKR {o.payment_amount?.toLocaleString()}</span>
+                                                </div>
+                                                <div className="flex justify-between mt-1">
+                                                    <span className="text-[9px] font-bold text-gray-500">Commission</span>
+                                                    <span className="text-[10px] font-black text-green-500">LKR {o.commission_earned?.toLocaleString()}</span>
+                                                </div>
+                                            </>
+                                        )
+                                    })()}
+                                </div>
+                            )}
+
+                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-4">Full Timeline</p>
+                            <div className="border-l-2 border-pink-100 ml-3 pl-5 space-y-4">
+                                {selectedHistoryCustomer.history.map((item, idx) => {
+                                    const workerName = workers.find(w => w.id === item.worker_id)?.full_name || 'Unknown'
+                                    return (
+                                        <div key={idx} className="relative">
+                                            <div className="absolute -left-[25px] top-1 w-4 h-4 bg-white border-2 border-[#EA1E63] rounded-full flex items-center justify-center">
+                                                <div className="w-1.5 h-1.5 bg-[#EA1E63] rounded-full" />
+                                            </div>
+                                            <div className="bg-gray-50 rounded-[18px] p-4 space-y-1.5">
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2">
+                                                        <StepIcon step={item.last_step} />
+                                                        <span className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${stepColor(item.last_step)}`}>
+                                                            {item.last_step}
+                                                        </span>
+                                                        <span className="text-[8px] font-black text-gray-400 bg-white px-2 py-0.5 rounded-full border">
+                                                            {workerName}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[8px] text-gray-300 font-bold">
+                                                        {new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                                        {' '}
+                                                        {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                </div>
+                                                {item.notes && <p className="text-[10px] text-gray-600 font-bold italic leading-relaxed">"{item.notes}"</p>}
+                                                {item.transferred_to_name && (
+                                                    <p className="text-[9px] text-pink-400 font-black">→ Transferred to {item.transferred_to_name}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── ADD TASK MODAL ── */}
             {taskFormOpen && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-[100] p-12">
                     <div className="bg-white w-full max-w-2xl rounded-[60px] p-14 shadow-2xl">
@@ -616,49 +1095,21 @@ export default function AdminDashboard() {
                             </button>
                         </div>
                         <form onSubmit={handleAddTask} className="space-y-5">
-                            <select
-                                required
-                                value={taskForm.worker_id}
-                                onChange={(e) => handleWorkerSelect(e.target.value)}
-                                className="w-full bg-gray-50 p-5 rounded-[25px] font-bold text-gray-700 outline-none border-2 border-transparent focus:border-pink-100 appearance-none"
-                            >
+                            <select required value={taskForm.worker_id} onChange={(e) => handleWorkerSelect(e.target.value)}
+                                className="w-full bg-gray-50 p-5 rounded-[25px] font-bold text-gray-700 outline-none border-2 border-transparent focus:border-pink-100 appearance-none">
                                 <option value="">Select Worker</option>
-                                {workers.map(w => (
-                                    <option key={w.id} value={w.id}>{w.full_name} — {w.post_label}</option>
-                                ))}
+                                {workers.map(w => <option key={w.id} value={w.id}>{w.full_name} — {w.post_label}</option>)}
                             </select>
-                            <input
-                                required
-                                type="text"
-                                value={taskForm.worker_phone}
-                                onChange={(e) => setTaskForm({ ...taskForm, worker_phone: e.target.value })}
-                                className="w-full bg-gray-50 p-5 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100"
-                                placeholder="Worker Phone (077...)"
-                            />
-                            <input
-                                required
-                                type="text"
-                                value={taskForm.title}
-                                onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
-                                className="w-full bg-gray-50 p-5 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100"
-                                placeholder="Task Title"
-                            />
-                            <textarea
-                                rows={3}
-                                value={taskForm.description}
-                                onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
-                                className="w-full bg-gray-50 p-5 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100 resize-none"
-                                placeholder="Description (optional)"
-                            />
+                            <input required type="text" value={taskForm.worker_phone} onChange={(e) => setTaskForm({ ...taskForm, worker_phone: e.target.value })}
+                                className="w-full bg-gray-50 p-5 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100" placeholder="Worker Phone (077...)" />
+                            <input required type="text" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
+                                className="w-full bg-gray-50 p-5 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100" placeholder="Task Title" />
+                            <textarea rows={3} value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
+                                className="w-full bg-gray-50 p-5 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100 resize-none" placeholder="Description (optional)" />
                             <div className="relative">
                                 <Calendar size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
-                                <input
-                                    required
-                                    type="date"
-                                    value={taskForm.deadline}
-                                    onChange={(e) => setTaskForm({ ...taskForm, deadline: e.target.value })}
-                                    className="w-full bg-gray-50 p-5 pl-12 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100"
-                                />
+                                <input required type="date" value={taskForm.deadline} onChange={(e) => setTaskForm({ ...taskForm, deadline: e.target.value })}
+                                    className="w-full bg-gray-50 p-5 pl-12 rounded-[25px] font-bold outline-none border-2 border-transparent focus:border-pink-100" />
                             </div>
                             <div className="bg-pink-50/50 rounded-[20px] p-5 border border-pink-100">
                                 <p className="text-[9px] font-black text-[#EA1E63] uppercase tracking-widest mb-2">Auto SMS Reminders (8:00 AM)</p>
@@ -676,11 +1127,10 @@ export default function AdminDashboard() {
                 </div>
             )}
 
-            {/* Full Map Modal */}
+            {/* ── FULL MAP MODAL ── */}
             {selectedWorkerLocation && (
                 <div className="fixed inset-0 bg-black/70 backdrop-blur-xl flex items-center justify-center z-[100] p-12">
                     <div className="bg-white w-full max-w-4xl rounded-[50px] overflow-hidden shadow-2xl">
-                        {/* Modal Header */}
                         <div className="p-8 flex items-center justify-between border-b border-gray-100">
                             <div className="flex items-center gap-4">
                                 <div className="h-12 w-12 bg-[#FFE1EC] rounded-xl flex items-center justify-center text-[#EA1E63] font-black uppercase">
@@ -698,38 +1148,21 @@ export default function AdminDashboard() {
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Coordinates</p>
-                                    <p className="text-xs font-black text-gray-700">
-                                        {selectedWorkerLocation.last_lat?.toFixed(5)}, {selectedWorkerLocation.last_lng?.toFixed(5)}
-                                    </p>
+                                    <p className="text-xs font-black text-gray-700">{selectedWorkerLocation.last_lat?.toFixed(5)}, {selectedWorkerLocation.last_lng?.toFixed(5)}</p>
                                 </div>
-                                <button
-                                    onClick={() => setSelectedWorkerLocation(null)}
-                                    className="h-10 w-10 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 hover:text-red-400"
-                                >
+                                <button onClick={() => setSelectedWorkerLocation(null)} className="h-10 w-10 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 hover:text-red-400">
                                     <X size={16} />
                                 </button>
                             </div>
                         </div>
-
-                        {/* Full Map */}
                         <div className="w-full h-[500px]">
-                            <iframe
-                                width="100%"
-                                height="100%"
-                                style={{ border: 0 }}
-                                loading="lazy"
-                                src={`https://maps.google.com/maps?q=${selectedWorkerLocation.last_lat},${selectedWorkerLocation.last_lng}&z=16&output=embed`}
-                            />
+                            <iframe width="100%" height="100%" style={{ border: 0 }} loading="lazy"
+                                src={`https://maps.google.com/maps?q=${selectedWorkerLocation.last_lat},${selectedWorkerLocation.last_lng}&z=16&output=embed`} />
                         </div>
-
-                        {/* Open in Google Maps */}
                         <div className="p-6 flex justify-center border-t border-gray-100">
-                            <a
-                                href={`https://www.google.com/maps?q=${selectedWorkerLocation.last_lat},${selectedWorkerLocation.last_lng}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="bg-[#EA1E63] text-white font-black px-10 py-4 rounded-[20px] flex items-center gap-3 text-sm shadow-lg shadow-pink-100"
-                            >
+                            <a href={`https://www.google.com/maps?q=${selectedWorkerLocation.last_lat},${selectedWorkerLocation.last_lng}`}
+                                target="_blank" rel="noopener noreferrer"
+                                className="bg-[#EA1E63] text-white font-black px-10 py-4 rounded-[20px] flex items-center gap-3 text-sm shadow-lg shadow-pink-100">
                                 <MapPin size={16} /> Open in Google Maps
                             </a>
                         </div>

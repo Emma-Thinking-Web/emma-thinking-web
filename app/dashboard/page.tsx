@@ -412,7 +412,7 @@ export default function Dashboard() {
                 .from('leads_history')
                 .select('*')
                 .eq('last_step', 'transfer')
-                .eq('transferred_to', user.id)
+                .eq('transferred_to_name', profile?.full_name)
                 .order('created_at', { ascending: false })
 
             if (transferData) {
