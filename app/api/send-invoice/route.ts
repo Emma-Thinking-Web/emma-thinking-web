@@ -34,11 +34,11 @@ async function sendWhatsApp(to: string, params: {
             components: [{
                 type: 'body',
                 parameters: [
-                    { type: 'text', text: params.customer_name },
-                    { type: 'text', text: params.invoice_number },
-                    { type: 'text', text: params.amount },
-                    { type: 'text', text: params.package_name },
-                    { type: 'text', text: params.invoice_link },
+                    { type: 'text', parameter_name: 'customer_name', text: params.customer_name },
+                    { type: 'text', parameter_name: 'invoice_number', text: params.invoice_number },
+                    { type: 'text', parameter_name: 'amount', text: params.amount },
+                    { type: 'text', parameter_name: 'package_name', text: params.package_name },
+                    { type: 'text', parameter_name: 'invoice_link', text: params.invoice_link },
                 ]
             }]
         }
