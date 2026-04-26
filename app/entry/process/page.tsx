@@ -162,7 +162,6 @@ function ProcessContent() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    invoiceNumber,
                     clientName: customerName,
                     clientNumber: phone,
                     paymentMethod,

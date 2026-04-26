@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 
 const WHATSAPP_TOKEN = "EAAXLCYV8OKIBRGfxJ213IvF7NZCwRmSLisvdWkBOBl99CF8EROsL6QFRaxMniBS2awW6VtMA0mFhXD3cVYpoG4ZBtZCTS0THZCTlZAcNlhQeTPLZBq4RpnyiDZBFSHGKkXS4ZC8ccAnvVVIwYFnJPuPo3T4tJ7teeipyPaZBdG9doss7ZAI1VfDhxkSrzn0YSDBgZDZD"
 const PHONE_ID = "1134936466363142"
+const LAST_MANUAL_INVOICE = 782
 
 const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,9 +17,19 @@ async function sendWhatsApp(to: string, params: {
     package_name: string
     invoice_link: string
 }) {
+    // Clean number — strip everything except digits
     let num = to.replace(/\D/g, '')
+
+    // Remove leading zeros
     if (num.startsWith('0')) num = '94' + num.slice(1)
+
+    // Remove double 94 (e.g. 9494XXXXXXX)
+    if (num.startsWith('9494')) num = num.slice(2)
+
+    // Add 94 if missing
     if (!num.startsWith('94')) num = '94' + num
+
+    console.log('Sending WhatsApp to:', num)
 
     const url = `https://graph.facebook.com/v21.0/${PHONE_ID}/messages`
 
@@ -50,13 +61,40 @@ async function sendWhatsApp(to: string, params: {
         },
         body: JSON.stringify(body)
     })
-    return res.json()
+
+    const result = await res.json()
+    console.log('WhatsApp API result:', JSON.stringify(result))
+    return result
+}
+
+async function getNextInvoiceNumber(): Promise<string> {
+    try {
+        const { data, error } = await supabaseAdmin
+            .from('orders')
+            .select('invoice_number')
+            .order('created_at', { ascending: false })
+            .limit(1)
+
+        if (error || !data || data.length === 0) {
+            // No orders yet — start from last manual + 1
+            return `EM${String(LAST_MANUAL_INVOICE + 1).padStart(5, '0')}`
+        }
+
+        const lastNum = parseInt(data[0].invoice_number.replace('EM', ''))
+
+        if (isNaN(lastNum) || lastNum < LAST_MANUAL_INVOICE) {
+            return `EM${String(LAST_MANUAL_INVOICE + 1).padStart(5, '0')}`
+        }
+
+        return `EM${String(lastNum + 1).padStart(5, '0')}`
+    } catch {
+        return `EM${String(LAST_MANUAL_INVOICE + 1).padStart(5, '0')}`
+    }
 }
 
 export async function POST(req: Request) {
     try {
         const {
-            invoiceNumber,
             clientName,
             clientNumber,
             paymentMethod,
@@ -70,28 +108,49 @@ export async function POST(req: Request) {
             workerId
         } = await req.json()
 
-        // 1. Upload slip to Supabase Storage (skip if KOKO)
+        // 1. Get next invoice number safely
+        const invoiceNumber = await getNextInvoiceNumber()
+        console.log('Generated invoice number:', invoiceNumber)
+
+        // 2. Upload slip to Supabase Storage (skip if KOKO)
         let slipUrl = null
         if (slipBase64 && paymentMethod !== 'KOKO') {
             const slipBuffer = Buffer.from(slipBase64, 'base64')
-            const slipPath = `slips/${invoiceNumber}.${slipMimeType === 'image/png' ? 'png' : 'jpg'}`
+
+            // Detect extension from mime type
+            let ext = 'jpg'
+            if (slipMimeType === 'image/png') ext = 'png'
+            else if (slipMimeType === 'application/pdf') ext = 'pdf'
+
+            const slipPath = `slips/${invoiceNumber}.${ext}`
             const { error: slipError } = await supabaseAdmin.storage
                 .from('invoices')
                 .upload(slipPath, slipBuffer, { contentType: slipMimeType, upsert: true })
-            if (!slipError) {
-                const { data: { publicUrl } } = supabaseAdmin.storage.from('invoices').getPublicUrl(slipPath)
+
+            if (slipError) {
+                console.error('Slip upload error:', slipError)
+            } else {
+                const { data: { publicUrl } } = supabaseAdmin.storage
+                    .from('invoices')
+                    .getPublicUrl(slipPath)
                 slipUrl = publicUrl
             }
         }
 
-        // 2. Generate invoice HTML → PDF bytes
+        // 3. Generate invoice HTML
         const invoiceHtml = generateInvoiceHtml({
-            invoiceNumber, clientName, clientNumber,
-            paymentMethod, kokoId, packageName,
-            baseAmount, discountPercent, finalAmount
+            invoiceNumber,
+            clientName,
+            clientNumber,
+            paymentMethod,
+            kokoId,
+            packageName,
+            baseAmount,
+            discountPercent,
+            finalAmount
         })
 
-        // 3. Upload PDF HTML as PDF to Supabase Storage
+        // 4. Upload invoice HTML to Supabase Storage
         const pdfPath = `pdfs/${invoiceNumber}.html`
         const { error: pdfError } = await supabaseAdmin.storage
             .from('invoices')
@@ -99,13 +158,13 @@ export async function POST(req: Request) {
                 contentType: 'text/html',
                 upsert: true
             })
-        if (pdfError) throw new Error('PDF upload failed: ' + pdfError.message)
+        if (pdfError) throw new Error('Invoice upload failed: ' + pdfError.message)
 
         const { data: { publicUrl: pdfUrl } } = supabaseAdmin.storage
             .from('invoices')
             .getPublicUrl(pdfPath)
 
-        // 4. Save order to DB
+        // 5. Save order to DB
         const { error: dbError } = await supabaseAdmin.from('orders').insert([{
             invoice_number: invoiceNumber,
             client_name: clientName,
@@ -122,16 +181,22 @@ export async function POST(req: Request) {
         }])
         if (dbError) throw new Error('DB insert failed: ' + dbError.message)
 
-        // 5. Send WhatsApp
-        await sendWhatsApp(clientNumber, {
+        // 6. Send WhatsApp
+        const waResult = await sendWhatsApp(clientNumber, {
             customer_name: clientName,
             invoice_number: invoiceNumber,
-            amount: finalAmount.toLocaleString(),
+            amount: Number(finalAmount).toLocaleString(),
             package_name: packageName,
             invoice_link: pdfUrl
         })
 
-        return NextResponse.json({ success: true, pdfUrl })
+        // Log if WhatsApp failed but don't crash — invoice is already saved
+        if (waResult.error) {
+            console.error('WhatsApp send failed:', JSON.stringify(waResult.error))
+        }
+
+        return NextResponse.json({ success: true, invoiceNumber, pdfUrl })
+
     } catch (error: any) {
         console.error('send-invoice error:', error)
         return NextResponse.json({ error: error.message }, { status: 500 })
@@ -221,11 +286,11 @@ function generateInvoiceHtml(data: {
     <tr>
       <td>${today}</td>
       <td>${descriptionLine}</td>
-      <td style="text-align:right">LKR ${data.finalAmount.toLocaleString()}.00</td>
+      <td style="text-align:right">LKR ${Number(data.finalAmount).toLocaleString()}.00</td>
     </tr>
   </tbody>
 </table>
-<div class="total-row">Total: LKR ${data.finalAmount.toLocaleString()}.00</div>
+<div class="total-row">Total: LKR ${Number(data.finalAmount).toLocaleString()}.00</div>
 <div class="terms">
   <h4>Terms &amp; Conditions</h4>
   <p>1. Emma Thinking (Pvt) Ltd is a legally registered Sri Lankan matchmaking service provider operating online via Facebook, Instagram, WhatsApp, and other digital platforms.</p>
