@@ -3,12 +3,12 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import Image from 'next/image'
-import Link from 'next/link'
 import {
-    Bell, PlusCircle, CheckCircle2, Clock, Loader2,
-    AlertTriangle, X, CalendarDays, ChevronRight
+    Loader2, PlusCircle, CheckCircle2, Clock,
+    AlertTriangle, X, CalendarDays, ChevronRight, Bell
 } from 'lucide-react'
+import Link from 'next/link'
+import TopNav from '../components/TopNav'
 import BottomNav from '../components/BottomNav'
 
 interface Task {
@@ -58,13 +58,7 @@ const TaskModal = ({
     const isOverdue = daysLeft < 0 && !isDone
     const isUrgent = daysLeft <= 2 && !isDone
 
-    const barColor = isOverdue
-        ? '#ef4444'
-        : isUrgent
-            ? '#f97316'
-            : daysLeft <= 5
-                ? '#f59e0b'
-                : '#EA1E63'
+    const barColor = isOverdue ? '#ef4444' : isUrgent ? '#f97316' : daysLeft <= 5 ? '#f59e0b' : '#EA1E63'
 
     const statusLabel = isDone
         ? 'Completed'
@@ -94,10 +88,7 @@ const TaskModal = ({
                 {/* Header */}
                 <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3">
-                        <div
-                            className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${isDone ? 'bg-green-50' : isUrgent || isOverdue ? 'bg-red-50' : 'bg-pink-50'
-                                }`}
-                        >
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${isDone ? 'bg-green-50' : isUrgent || isOverdue ? 'bg-red-50' : 'bg-pink-50'}`}>
                             {isDone ? (
                                 <CheckCircle2 size={20} className="text-green-500" />
                             ) : isUrgent || isOverdue ? (
@@ -108,24 +99,12 @@ const TaskModal = ({
                         </div>
                         <div>
                             <p className="text-sm font-black text-gray-800 leading-tight">{task.title}</p>
-                            <span
-                                className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mt-1 ${isDone
-                                    ? 'bg-green-50 text-green-500'
-                                    : isOverdue
-                                        ? 'bg-red-50 text-red-500'
-                                        : isUrgent
-                                            ? 'bg-orange-50 text-orange-500'
-                                            : 'bg-pink-50 text-[#EA1E63]'
-                                    }`}
-                            >
+                            <span className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mt-1 ${isDone ? 'bg-green-50 text-green-500' : isOverdue ? 'bg-red-50 text-red-500' : isUrgent ? 'bg-orange-50 text-orange-500' : 'bg-pink-50 text-[#EA1E63]'}`}>
                                 {statusLabel}
                             </span>
                         </div>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 flex-shrink-0"
-                    >
+                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 flex-shrink-0">
                         <X size={14} />
                     </button>
                 </div>
@@ -149,9 +128,7 @@ const TaskModal = ({
                         Deadline:{' '}
                         <span className="text-gray-700">
                             {new Date(task.deadline).toLocaleDateString('en-GB', {
-                                day: 'numeric',
-                                month: 'long',
-                                year: 'numeric',
+                                day: 'numeric', month: 'long', year: 'numeric',
                             })}
                         </span>
                     </span>
@@ -170,15 +147,12 @@ const TaskModal = ({
                             </span>
                         </div>
                         <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-                            <div
-                                className="h-full rounded-full transition-all duration-700"
-                                style={{ width: `${progress}%`, backgroundColor: barColor }}
-                            />
+                            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${progress}%`, backgroundColor: barColor }} />
                         </div>
                     </div>
                 )}
 
-                {/* Overdue locked notice */}
+                {/* Overdue notice */}
                 {isOverdue && (
                     <div className="bg-red-50 border border-red-100 rounded-2xl p-4 flex gap-3 items-start">
                         <AlertTriangle size={14} className="text-red-400 mt-0.5 flex-shrink-0" />
@@ -188,7 +162,7 @@ const TaskModal = ({
                     </div>
                 )}
 
-                {/* Done actions */}
+                {/* Actions */}
                 {isDone ? (
                     <div className="flex items-center justify-center gap-2 py-3">
                         <CheckCircle2 size={18} className="text-green-400" />
@@ -232,103 +206,6 @@ const TaskModal = ({
     )
 }
 
-// ── TASK PALLET CARD ───────────────────────────────────────────────────────────
-const TaskCard = ({ task, onClick }: { task: Task; onClick: () => void }) => {
-    const daysLeft = getDaysLeft(task.deadline)
-    const progress = getProgressPercent(task.created_at, task.deadline)
-    const isDone = task.status === 'done'
-    const isUrgent = daysLeft <= 2 && !isDone
-    const isOverdue = daysLeft < 0 && !isDone
-
-    const barColor = isOverdue
-        ? '#ef4444'
-        : isUrgent
-            ? '#f97316'
-            : daysLeft <= 5
-                ? '#f59e0b'
-                : '#EA1E63'
-
-    const statusLabel = isDone
-        ? 'Completed'
-        : isOverdue
-            ? `${Math.abs(daysLeft)}d overdue`
-            : daysLeft === 0
-                ? 'Due Today!'
-                : `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`
-
-    return (
-        <button
-            onClick={onClick}
-            className={`w-full text-left bg-white border rounded-[24px] p-5 shadow-sm space-y-3 transition-all active:scale-[0.98] ${isUrgent || isOverdue ? 'border-red-100 shadow-red-50' : 'border-gray-50'
-                }`}
-        >
-            {/* Header */}
-            <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                    <div
-                        className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${isDone ? 'bg-green-50' : isUrgent || isOverdue ? 'bg-red-50' : 'bg-pink-50'
-                            }`}
-                    >
-                        {isDone ? (
-                            <CheckCircle2 size={18} className="text-green-500" />
-                        ) : isUrgent || isOverdue ? (
-                            <AlertTriangle size={18} className="text-red-400" />
-                        ) : (
-                            <Clock size={18} className="text-[#EA1E63]" />
-                        )}
-                    </div>
-                    <div>
-                        <p className="text-xs font-black text-gray-800 leading-tight">{task.title}</p>
-                        {task.description && (
-                            <p className="text-[9px] text-gray-400 font-bold mt-0.5 line-clamp-1">{task.description}</p>
-                        )}
-                    </div>
-                </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <span
-                        className={`text-[8px] font-black uppercase tracking-wider px-2 py-1 rounded-full ${isDone
-                            ? 'bg-green-50 text-green-500'
-                            : isOverdue
-                                ? 'bg-red-50 text-red-500'
-                                : isUrgent
-                                    ? 'bg-orange-50 text-orange-500'
-                                    : 'bg-pink-50 text-[#EA1E63]'
-                            }`}
-                    >
-                        {statusLabel}
-                    </span>
-                    <ChevronRight size={12} className="text-gray-300" />
-                </div>
-            </div>
-
-            {/* Progress Bar */}
-            {!isDone && (
-                <div className="space-y-1">
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                            className="h-full rounded-full transition-all duration-500"
-                            style={{ width: `${progress}%`, backgroundColor: barColor }}
-                        />
-                    </div>
-                    <div className="flex justify-between">
-                        <span className="text-[8px] text-gray-300 font-bold">
-                            {new Date(task.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                        </span>
-                        <span className="text-[8px] text-gray-400 font-black">
-                            {new Date(task.deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                        </span>
-                    </div>
-                </div>
-            )}
-
-            {/* Tap hint */}
-            <p className="text-[8px] text-gray-300 font-black uppercase tracking-widest text-center">
-                Tap to view details
-            </p>
-        </button>
-    )
-}
-
 // ── MAIN DASHBOARD ─────────────────────────────────────────────────────────────
 export default function Dashboard() {
     const router = useRouter()
@@ -336,35 +213,29 @@ export default function Dashboard() {
     const [tasks, setTasks] = useState<Task[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedTask, setSelectedTask] = useState<Task | null>(null)
-    const [notifOpen, setNotifOpen] = useState(false)
 
     useEffect(() => {
         const init = async () => {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser()
-            if (!user) {
-                router.push('/')
-                return
-            }
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) { router.push('/'); return }
+
             const { data: profileData } = await supabase
                 .from('profiles')
                 .select('*')
                 .eq('id', user.id)
                 .single()
             if (profileData) setProfile(profileData)
+
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(async (pos) => {
-                    await supabase
-                        .from('profiles')
-                        .update({
-                            last_lat: pos.coords.latitude,
-                            last_lng: pos.coords.longitude,
-                            last_seen: new Date().toISOString(),
-                        })
-                        .eq('id', user.id)
+                    await supabase.from('profiles').update({
+                        last_lat: pos.coords.latitude,
+                        last_lng: pos.coords.longitude,
+                        last_seen: new Date().toISOString(),
+                    }).eq('id', user.id)
                 })
             }
+
             const { data: taskData } = await supabase
                 .from('tasks')
                 .select('*')
@@ -379,7 +250,6 @@ export default function Dashboard() {
 
     const handleMarkDone = async (taskId: string) => {
         const task = tasks.find(t => t.id === taskId)
-
         const { error } = await supabase
             .from('tasks')
             .update({ status: 'done', updated_at: new Date().toISOString() })
@@ -387,7 +257,6 @@ export default function Dashboard() {
 
         if (!error) {
             setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: 'done' } : t)))
-
             if (task && profile) {
                 try {
                     await fetch('/api/notify-complete', {
@@ -413,31 +282,10 @@ export default function Dashboard() {
             </div>
         )
 
-    const activeTasks = tasks.filter((t) => t.status !== 'done')
-    const doneTasks = tasks.filter((t) => t.status === 'done')
-
     return (
         <div className="h-screen flex flex-col bg-white overflow-hidden">
-            {/* TOP BAR */}
-            <div className="bg-[#FFE1EC] p-5 rounded-b-[35px] flex justify-between items-center shadow-sm z-50">
-                <div className="flex items-center gap-2">
-                    <Image src="/emma-logo.png" alt="Logo" width={28} height={28} priority />
-                    <span className="text-[#EA1E63] font-black text-lg tracking-tighter">Emma Thinking</span>
-                </div>
-                <div className="flex items-center gap-3">
-                    <button onClick={() => setNotifOpen(true)} className="relative">
-                        <Bell size={22} className="text-gray-700" />
-                        {activeTasks.length > 0 && (
-                            <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#EA1E63] rounded-full text-white text-[8px] font-black flex items-center justify-center">
-                                {activeTasks.length}
-                            </span>
-                        )}
-                    </button>
-                    <div className="h-9 w-9 bg-white rounded-full flex items-center justify-center text-[#EA1E63] font-black border border-pink-100 shadow-sm uppercase text-xs">
-                        {profile?.full_name?.substring(0, 2) || 'US'}
-                    </div>
-                </div>
-            </div>
+            {/* TOP NAV — handles bell, tasks panel, avatar, wallet */}
+            <TopNav onTaskSelect={(task) => setSelectedTask(task)} />
 
             {/* SCROLLABLE CONTENT */}
             <div className="flex-grow overflow-y-auto px-5 py-4 space-y-5 pb-28">
@@ -456,8 +304,8 @@ export default function Dashboard() {
                 <div className="bg-gray-50 rounded-[24px] p-10 text-center space-y-2">
                     <Bell size={28} className="text-pink-200 mx-auto" />
                     <p className="text-xs font-black text-gray-400">
-                        {activeTasks.length > 0
-                            ? `You have ${activeTasks.length} active task${activeTasks.length !== 1 ? 's' : ''}`
+                        {tasks.filter(t => t.status !== 'done').length > 0
+                            ? `You have ${tasks.filter(t => t.status !== 'done').length} active task${tasks.filter(t => t.status !== 'done').length !== 1 ? 's' : ''}`
                             : 'No active tasks'}
                     </p>
                     <p className="text-[9px] text-gray-300 font-black uppercase tracking-widest">
@@ -471,80 +319,6 @@ export default function Dashboard() {
                     </p>
                 </div>
             </div>
-
-            {/* NOTIFICATION PANEL */}
-            {notifOpen && (
-                <div
-                    className="fixed inset-0 z-[150] flex items-end justify-center bg-black/40 backdrop-blur-sm px-4 pb-6"
-                    onClick={() => setNotifOpen(false)}
-                >
-                    <div
-                        className="bg-white w-full max-w-md rounded-[32px] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-300"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Panel header */}
-                        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-50">
-                            <div>
-                                <h2 className="text-sm font-black text-gray-800">My Tasks</h2>
-                                <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest mt-0.5">
-                                    {activeTasks.length} active · {doneTasks.length} completed
-                                </p>
-                            </div>
-                            <button
-                                onClick={() => setNotifOpen(false)}
-                                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400"
-                            >
-                                <X size={14} />
-                            </button>
-                        </div>
-
-                        {/* Task list */}
-                        <div className="overflow-y-auto max-h-[70vh] px-4 py-4 space-y-3">
-                            {activeTasks.length === 0 && doneTasks.length === 0 ? (
-                                <div className="py-8 text-center">
-                                    <CheckCircle2 size={32} className="text-green-300 mx-auto mb-2" />
-                                    <p className="text-xs font-black text-gray-400">All tasks completed!</p>
-                                </div>
-                            ) : (
-                                <>
-                                    {activeTasks.map((task) => (
-                                        <TaskCard
-                                            key={task.id}
-                                            task={task}
-                                            onClick={() => {
-                                                setNotifOpen(false)
-                                                setSelectedTask(task)
-                                            }}
-                                        />
-                                    ))}
-                                    {doneTasks.length > 0 && (
-                                        <>
-                                            <p className="text-[10px] font-black text-gray-300 uppercase tracking-widest ml-1 pt-2">
-                                                Completed
-                                            </p>
-                                            {doneTasks.map((task) => (
-                                                <TaskCard
-                                                    key={task.id}
-                                                    task={task}
-                                                    onClick={() => {
-                                                        setNotifOpen(false)
-                                                        setSelectedTask(task)
-                                                    }}
-                                                />
-                                            ))}
-                                        </>
-                                    )}
-                                </>
-                            )}
-                            <div className="py-2 text-center">
-                                <p className="text-[9px] text-gray-200 font-black uppercase tracking-[0.3em] italic">
-                                    Made By Kossa • v1.0.3
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* TASK DETAIL MODAL */}
             {selectedTask && (
