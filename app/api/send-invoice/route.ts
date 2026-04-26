@@ -172,7 +172,7 @@ export async function POST(req: Request) {
             invoice_number: invoiceNumber,
             amount: Number(finalAmount).toLocaleString(),
             package_name: packageName,
-            invoice_link: pdfUrl
+            invoice_link: 'https://emma-thinking-web.vercel.app/invoice/' + invoiceNumber
         })
 
         if (waResult.error) {
