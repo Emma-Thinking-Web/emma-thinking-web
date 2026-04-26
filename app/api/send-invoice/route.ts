@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const WHATSAPP_TOKEN = "EAAXLCYV8OKIBRDgZB75fa9h5m4ul9QZCr3VJB4sv48dEZAdpUecXZAXj6m6pwltUAXM4pHzLm9g1QvTj2wyntxrgjvqUDdmqlqqRLSztThlNi3qVs6uR2lQt2B2M3NmorzvdsH54TJyyqXZAI8aUpRGGi3ZChELZA4dnVb9dREGGpvAFSq6ZA98KuzEPm37nWwZDZD"
+const WHATSAPP_TOKEN = process.env.WABA_ACCESS_TOKEN!
 const PHONE_ID = "1134936466363142"
 const LAST_MANUAL_INVOICE = 782
 
