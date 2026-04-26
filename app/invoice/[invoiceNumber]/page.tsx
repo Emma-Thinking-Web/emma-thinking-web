@@ -1,31 +1,55 @@
-import { createClient } from '@supabase/supabase-js'
-import { notFound } from 'next/navigation'
+'use client'
 
-const supabaseAdmin = createClient(
+import { useEffect, useState } from 'react'
+import { useParams } from 'next/navigation'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export default async function InvoicePage({ params }: { params: { invoiceNumber: string } }) {
-    const { invoiceNumber } = params
+export default function InvoicePage() {
+    const { invoiceNumber } = useParams()
+    const [order, setOrder] = useState<any>(null)
+    const [notFound, setNotFound] = useState(false)
 
-    const { data: order, error } = await supabaseAdmin
-        .from('orders')
-        .select('*')
-        .eq('invoice_number', invoiceNumber)
-        .single()
+    useEffect(() => {
+        const fetchOrder = async () => {
+            const { data, error } = await supabase
+                .from('orders')
+                .select('*')
+                .eq('invoice_number', invoiceNumber)
+                .single()
 
-    if (error || !order) return notFound()
+            if (error || !data) {
+                setNotFound(true)
+                return
+            }
+            setOrder(data)
+        }
+        fetchOrder()
+    }, [invoiceNumber])
+
+    if (notFound) return (
+        <div style={{ textAlign: 'center', padding: '60px', fontFamily: 'Arial' }}>
+            <h2>Invoice not found</h2>
+        </div>
+    )
+
+    if (!order) return (
+        <div style={{ textAlign: 'center', padding: '60px', fontFamily: 'Arial' }}>
+            <p>Loading invoice...</p>
+        </div>
+    )
 
     const today = new Date(order.created_at).toLocaleDateString('en-GB', {
         day: '2-digit', month: 'long', year: 'numeric'
     })
-
     const dash = '-'
     const descriptionLine = order.discount_percent > 0
         ? order.package_name + ' ' + dash + ' ' + order.discount_percent + '% Discount'
         : order.package_name + ' ' + dash + ' Profile Publishing & Ad Boost'
-
     const finalAmountFormatted = Number(order.final_amount).toLocaleString()
     const kokoLine = order.koko_id ? ' (ID: ' + order.koko_id + ')' : ''
 
