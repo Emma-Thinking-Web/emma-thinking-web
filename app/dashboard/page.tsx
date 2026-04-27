@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter, useParams } from 'next/navigation'
 import {
@@ -38,7 +38,9 @@ const actionColors = [
 
 const COUNCILLOR_ROLES = ['Councillor', 'Councellor', 'Councilor']
 
-function isCouncillor(worker: Worker): boolean {
+// Added null-check to prevent the crash
+function isCouncillor(worker: Worker | null): boolean {
+    if (!worker) return false
     return COUNCILLOR_ROLES.some(r =>
         worker.post_label?.toLowerCase().includes(r.toLowerCase()) ||
         worker.full_name?.toLowerCase() === 'rashi' ||
@@ -59,35 +61,8 @@ export default function WorkerActionsPage() {
     const [assignedCustomers, setAssignedCustomers] = useState<AssignedCustomer[]>([])
     const [loadingCustomers, setLoadingCustomers] = useState(false)
 
-    useEffect(() => {
-        if (workerId) fetchWorker()
-    }, [workerId])
-
-    useEffect(() => {
-        if (activeTab === 'customers' && worker) fetchAssignedCustomers()
-    }, [activeTab, worker])
-
-    const fetchWorker = async () => {
-        try {
-            setLoading(true)
-            const { data } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', workerId)
-                .single()
-
-            if (data) {
-                setWorker(data as Worker)
-                setActions(data.custom_actions && data.custom_actions.length > 0 ? [...data.custom_actions] : [])
-            }
-        } catch (err) {
-            console.error('fetchWorker error:', err)
-        } finally {
-            setLoading(false)
-        }
-    }
-
-    const fetchAssignedCustomers = async () => {
+    const fetchAssignedCustomers = useCallback(async () => {
+        if (!workerId) return
         try {
             setLoadingCustomers(true)
             const { data } = await supabase
@@ -111,7 +86,41 @@ export default function WorkerActionsPage() {
         } finally {
             setLoadingCustomers(false)
         }
-    }
+    }, [workerId])
+
+    const fetchWorker = useCallback(async () => {
+        try {
+            setLoading(true)
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', workerId)
+                .single()
+
+            if (error) throw error
+
+            if (data) {
+                setWorker(data as Worker)
+                setActions(data.custom_actions && data.custom_actions.length > 0 ? [...data.custom_actions] : [])
+            }
+        } catch (err) {
+            console.error('fetchWorker error:', err)
+        } finally {
+            setLoading(false)
+        }
+    }, [workerId])
+
+    useEffect(() => {
+        if (workerId) {
+            fetchWorker()
+        }
+    }, [workerId, fetchWorker])
+
+    useEffect(() => {
+        if (activeTab === 'customers' && worker) {
+            fetchAssignedCustomers()
+        }
+    }, [activeTab, worker, fetchAssignedCustomers])
 
     const addAction = () => {
         const newAction: CustomAction = {
@@ -147,6 +156,7 @@ export default function WorkerActionsPage() {
         setSaving(false)
     }
 
+    // This handles the loading state properly without checking "isCouncillor" yet
     if (loading) {
         return (
             <div className="fixed inset-0 bg-gray-50 flex items-center justify-center">
@@ -155,6 +165,7 @@ export default function WorkerActionsPage() {
         )
     }
 
+    // Now that loading is finished, check if worker exists
     if (!worker) {
         return (
             <div className="fixed inset-0 bg-gray-50 flex items-center justify-center">
@@ -168,6 +179,7 @@ export default function WorkerActionsPage() {
         )
     }
 
+    // Safely check councillor status now that worker is guaranteed to exist
     const showCouncillorTab = isCouncillor(worker)
 
     return (
@@ -362,7 +374,7 @@ export default function WorkerActionsPage() {
                         </div>
                     )}
 
-                    {/* ── CUSTOMERS TAB (Councillor only) ── */}
+                    {/* ── CUSTOMERS TAB ── */}
                     {activeTab === 'customers' && showCouncillorTab && (
                         <div className="max-w-3xl mx-auto space-y-5">
                             <button
