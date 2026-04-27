@@ -36,7 +36,6 @@ const actionColors = [
     '#8B5CF6', '#EC4899', '#06B6D4', '#EF4444'
 ]
 
-// Councillor roles that get the "Add to Plan" feature
 const COUNCILLOR_ROLES = ['Councillor', 'Councellor', 'Councilor']
 
 function isCouncillor(worker: Worker): boolean {
@@ -69,39 +68,49 @@ export default function WorkerActionsPage() {
     }, [activeTab, worker])
 
     const fetchWorker = async () => {
-        setLoading(true)
-        const { data } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', workerId)
-            .single()
+        try {
+            setLoading(true)
+            const { data } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', workerId)
+                .single()
 
-        if (data) {
-            setWorker(data as Worker)
-            setActions(data.custom_actions && data.custom_actions.length > 0 ? [...data.custom_actions] : [])
+            if (data) {
+                setWorker(data as Worker)
+                setActions(data.custom_actions && data.custom_actions.length > 0 ? [...data.custom_actions] : [])
+            }
+        } catch (err) {
+            console.error('fetchWorker error:', err)
+        } finally {
+            setLoading(false)
         }
-        setLoading(false)
     }
 
     const fetchAssignedCustomers = async () => {
-        setLoadingCustomers(true)
-        const { data } = await supabase
-            .from('leads_history')
-            .select('*')
-            .eq('last_step', 'transfer')
-            .eq('transferred_to', workerId)
-            .order('created_at', { ascending: false })
+        try {
+            setLoadingCustomers(true)
+            const { data } = await supabase
+                .from('leads_history')
+                .select('*')
+                .eq('last_step', 'transfer')
+                .eq('transferred_to', workerId)
+                .order('created_at', { ascending: false })
 
-        if (data) {
-            const seen = new Set()
-            const unique = data.filter((item: any) => {
-                if (seen.has(item.phone_number)) return false
-                seen.add(item.phone_number)
-                return true
-            })
-            setAssignedCustomers(unique)
+            if (data) {
+                const seen = new Set()
+                const unique = data.filter((item: any) => {
+                    if (seen.has(item.phone_number)) return false
+                    seen.add(item.phone_number)
+                    return true
+                })
+                setAssignedCustomers(unique)
+            }
+        } catch (err) {
+            console.error('fetchAssignedCustomers error:', err)
+        } finally {
+            setLoadingCustomers(false)
         }
-        setLoadingCustomers(false)
     }
 
     const addAction = () => {
@@ -356,7 +365,6 @@ export default function WorkerActionsPage() {
                     {/* ── CUSTOMERS TAB (Councillor only) ── */}
                     {activeTab === 'customers' && showCouncillorTab && (
                         <div className="max-w-3xl mx-auto space-y-5">
-                            {/* Quick link to FR Plan */}
                             <button
                                 onClick={() => router.push('/plan')}
                                 className="w-full bg-gradient-to-r from-[#EA1E63] to-[#c01652] text-white font-black py-5 rounded-[28px] flex items-center justify-center gap-3 text-sm shadow-xl shadow-pink-200"
@@ -398,7 +406,6 @@ export default function WorkerActionsPage() {
                                                         </p>
                                                     </div>
                                                 </div>
-                                                {/* This button opens the councillor page for this customer */}
                                                 <button
                                                     onClick={() => router.push(`/councillor/${encodeURIComponent(cust.phone_number)}`)}
                                                     className="bg-[#EA1E63] text-white font-black px-5 py-2.5 rounded-[14px] text-[10px] uppercase tracking-widest flex items-center gap-2 shadow-sm shadow-pink-100 hover:opacity-90 transition-all"
